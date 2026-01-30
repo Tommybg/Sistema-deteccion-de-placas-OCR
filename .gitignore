@@ -1,0 +1,28 @@
+# --- Entorno y Configuración ---
+anpr_env/
+venv/
+.env
+__pycache__/
+*.py[cod]
+.DS_Store
+
+# --- Datasets ---
+# Ignoramos los datos crudos y procesados (son pesados y privacidad)
+dataset_combinado/
+datasets/
+Proyecto-Placas-*/
+*.zip
+
+# --- Resultados de Entrenamiento ---
+# Ignoramos logs masivos y checkpoints intermedios
+runs/
+output/
+wandb/
+
+# --- IDEs ---
+.vscode/
+.idea/
+
+# --- NOTA SOBRE MODELOS ---
+# models/*.pt       -> Se suben (Son pequeños < 100MB)
+# models/*.tflite   -> Se suben (Para uso inmediato)

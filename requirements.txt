@@ -1,0 +1,45 @@
+# ========================================
+# SISTEMA ANPR - RECONOCIMIENTO DE PLACAS
+# Dependencias del proyecto
+# ========================================
+
+# Core ML/DL
+ultralytics>=8.0.0          # YOLOv11
+torch>=2.0.0                # PyTorch
+torchvision>=0.15.0         # Transformaciones de imagen
+
+# TensorFlow para exportación TFLite
+tensorflow>=2.10.0          # TensorFlow principal
+# tensorflow-lite            # Alternativa ligera para edge
+
+# OCR - elegir según plataforma:
+# fast-plate-ocr[onnx]          # CPU/Mac (cross-platform) - RECOMENDADO
+# fast-plate-ocr[onnx-gpu]      # NVIDIA GPU (Linux/Windows)
+# fast-plate-ocr[onnx-openvino] # Intel CPUs (optimizado)
+# fast-plate-ocr[train]         # Para entrenar/fine-tune el OCR
+fast-plate-ocr[onnx]            # Default: CPU/cross-platform
+
+# Conversión de modelos
+onnx>=1.14.0                # Formato intermedio
+onnxruntime>=1.15.0         # Runtime ONNX
+# onnx2tf                   # Conversión ONNX a TF (opcional)
+
+# Computer Vision
+opencv-python>=4.5.0        # Procesamiento de video/imagen
+numpy>=1.21.0               # Operaciones numéricas
+pillow>=9.0.0               # Manipulación de imágenes
+
+# Utilidades
+pyyaml>=6.0                 # Archivos de configuración
+tqdm>=4.64.0                # Barras de progreso
+matplotlib>=3.5.0           # Visualización (opcional)
+seaborn>=0.12.0             # Gráficos estadísticos (opcional)
+streamlit>=1.30.0           # Demo web app
+
+# Para Edge Devices (instalar según necesidad)
+# tflite-runtime            # Runtime TFLite ligero
+# pycoral                   # Coral Edge TPU
+
+# Desarrollo (opcional)
+# jupyter                   # Notebooks
+# tensorboard               # Visualización de entrenamiento
