@@ -1,19 +1,64 @@
-# 🚗 Sistema deteccion de placas + OCR 
+# 🚗 Sistema ANPR — Detección de Placas + Tipo de Vehículo + OCR
 
-Guía detallada del sistema de Reconocimiento Automático de Placas Vehiculares (ANPR) para Colombia.
+Sistema de Reconocimiento Automático de Placas Vehiculares (ANPR) con clasificación de tipo de vehículo, diseñado para despliegue en dispositivos edge (Coral Edge TPU).
 
 ---
 
 ## 📋 Tabla de Contenidos
 
-1. [Estructura del Proyecto](#-estructura-del-proyecto)
-2. [Qué Hace Cada Script](#-qué-hace-cada-script)
-3. [Cómo Funciona el Entrenamiento](#-cómo-funciona-el-entrenamiento)
-4. [Los Modelos Generados](#-los-modelos-generados)
-5. [Deployment para Coral Edge TPU](#-deployment-para-coral-edge-tpu)
-6. [Comandos Rápidos](#-comandos-rápidos)
-7. [Instalación Detallada](#-instalación-detallada)
-8. [Troubleshooting](#-troubleshooting)
+1. [Arquitectura del Pipeline](#-arquitectura-del-pipeline)
+2. [Estructura del Proyecto](#-estructura-del-proyecto)
+3. [Qué Hace Cada Script](#-qué-hace-cada-script)
+4. [Cómo Funciona el Entrenamiento](#-cómo-funciona-el-entrenamiento)
+5. [Los Modelos Generados](#-los-modelos-generados)
+6. [Deployment para Coral Edge TPU](#-deployment-para-coral-edge-tpu)
+7. [Comandos Rápidos](#-comandos-rápidos)
+8. [Instalación Detallada](#-instalación-detallada)
+9. [Troubleshooting](#-troubleshooting)
+
+---
+
+## 🏗 Arquitectura del Pipeline
+
+El sistema utiliza un pipeline multi-modelo que procesa cada frame de video en secuencia:
+
+```
+              Frame de Cámara
+                    │
+         ┌──────────▼──────────┐
+         │   Modelo 1: YOLOv11n │   Detecta vehículos y clasifica
+         │   Tipo de Vehículo   │   por tipo (Automóvil, Bus,
+         │   (~2.8 MB INT8)     │   Camión, Motocicleta)
+         └──────────┬──────────┘
+                    │ recortes de vehículos
+         ┌──────────┼──────────────┐
+         ▼          ▼              ▼
+   ┌───────────┐ ┌───────────┐ ┌──────────────┐
+   │ Modelo 2  │ │ Modelo 3  │ │  Modelo 4    │
+   │ Color     │ │ Marca     │ │  Detección   │
+   │ (Fase 2)  │ │ (Fase 3)  │ │  de Placas   │
+   │ ~3 MB     │ │ ~4 MB     │ │  ~2.8 MB     │
+   │ Próximo   │ │ Próximo   │ │  ✅ Listo     │
+   └───────────┘ └───────────┘ └──────┬───────┘
+                                      │
+                                      ▼
+                                ┌───────────┐
+                                │    OCR    │   Lee texto de la placa
+                                │  ✅ Listo  │
+                                └───────────┘
+```
+
+### Estado de los modelos
+
+| Modelo | Función | Estado | Tamaño (INT8) |
+|--------|---------|--------|---------------|
+| **Tipo de Vehículo** | Automóvil, Motocicleta, Bus, Camión | ✅ Listo | ~2.8 MB |
+| **Detección de Placas** | Localiza placas en el frame | ✅ Listo | ~2.8 MB |
+| **OCR** | Lee caracteres alfanuméricos de la placa | ✅ Listo | — |
+| **Color** | Blanco, negro, rojo, azul, etc. | 🔜 Fase 2 | ~3 MB |
+| **Marca** | Chevrolet, Renault, Mazda, etc. | 🔜 Fase 3 | ~4 MB |
+
+**Huella total en Coral Edge TPU:** ~12-13 MB (los modelos se ejecutan secuencialmente, ~30-40ms por frame → **25+ FPS en tiempo real**).
 
 ---
 
@@ -22,16 +67,19 @@ Guía detallada del sistema de Reconocimiento Automático de Placas Vehiculares 
 ```
 anpr_project/
 ├── setup.sh                 # Instalación del entorno
-├── app_demo.py              # Demo web Streamlit
+├── app_demo.py              # Demo web Streamlit (local)
+├── app_cloud.py             # Demo web Streamlit (Railway)
 ├── requirements.txt         # Dependencias
 ├── scripts/                 # Pipeline de ML
 │   ├── 01_preparar_dataset.py
 │   ├── 02_entrenar_modelo.py
 │   ├── 03_exportar_tflite.py
-│   └── 04_inferencia_tiempo_real.py
+│   ├── 04_inferencia_tiempo_real.py
+│   ├── vehicle_detector.py          # Módulo de detección de tipo de vehículo
+│   └── yolo11n.pt                   # Modelo de detección de vehículos (~5 MB)
 ├── models/                  # Modelos entrenados
-│   ├── placa_detector_yolo11n.pt       # PyTorch (5.2 MB)
-│   ├── placa_detector_yolo11n.onnx     # ONNX (10 MB)
+│   ├── placa_detector_yolo11n.pt       # Detección de placas - PyTorch (5.2 MB)
+│   ├── placa_detector_yolo11n.onnx     # Detección de placas - ONNX (10 MB)
 │   └── placa_detector_yolo11n_saved_model/
 │       ├── placa_detector_yolo11n_float32.tflite    # 10 MB
 │       ├── placa_detector_yolo11n_float16.tflite    # 5.1 MB
@@ -81,12 +129,29 @@ Entrena el modelo YOLOv11 nano para detección de placas usando Transfer Learnin
 
 Convierte el modelo PyTorch a formatos para dispositivos edge (TFLite FP32, FP16, INT8) y prepara la compilación para Edge TPU.
 
+### [vehicle_detector.py](scripts/vehicle_detector.py)
+
+Módulo compartido de detección de tipo de vehículo. Clasifica cada vehículo detectado en una de las siguientes categorías:
+
+| Tipo | Descripción |
+|------|-------------|
+| 🚗 Automóvil | Sedán, SUV, hatchback, etc. |
+| 🏍 Motocicleta | Motos de cualquier tipo |
+| 🚌 Bus | Buses, busetas |
+| 🚛 Camión | Camiones, furgones |
+
+El módulo también se encarga de **asociar cada placa detectada con su vehículo correspondiente**, usando la posición espacial de los bounding boxes (la placa debe estar contenida dentro del vehículo).
+
 ### [04_inferencia_tiempo_real.py](scripts/04_inferencia_tiempo_real.py)
 
-Ejecuta detección + OCR en video/webcam.
+Ejecuta el pipeline completo (detección de vehículos + detección de placas + OCR) en video/webcam.
 
 ```bash
-python 04_inferencia_tiempo_real.py --source 0  # Webcam
+# Con detección de tipo de vehículo (activado por defecto)
+python scripts/04_inferencia_tiempo_real.py --source 0
+
+# Sin detección de vehículos
+python scripts/04_inferencia_tiempo_real.py --source 0 --no-vehicle-detection
 ```
 
 ---
@@ -142,6 +207,43 @@ sudo apt-get install edgetpu-compiler
 edgetpu_compiler placa_detector_yolo11n_dynamic_range_quant.tflite
 ```
 Genera → `placa_detector_yolo11n_dynamic_range_quant_edgetpu.tflite`
+
+---
+
+## 🚗 Detección de Tipo de Vehículo
+
+El sistema detecta automáticamente el tipo de cada vehículo en el frame y lo asocia con su placa correspondiente.
+
+### ¿Cómo funciona?
+
+1. **Detección de vehículos** — El modelo `yolo11n.pt` analiza el frame completo y localiza cada vehículo, clasificándolo por tipo (Automóvil, Motocicleta, Bus, Camión)
+2. **Detección de placas** — El modelo `placa_detector_yolo11n.pt` localiza las placas vehiculares
+3. **Asociación placa → vehículo** — El sistema vincula cada placa con el vehículo que la contiene usando la posición espacial de los bounding boxes
+4. **OCR** — Lee los caracteres de cada placa detectada
+
+### Resultado por vehículo
+
+Para cada vehículo detectado, el sistema entrega:
+
+```
+┌─────────────────────────────┐
+│  [recorte de la placa]      │
+│  📋 Placa: ABC-123          │
+│  📊 Confianza: 98.5%        │
+│  🚗 Tipo: Automóvil         │
+│  🎨 Color: Próximamente     │
+│  🏭 Marca: Próximamente     │
+└─────────────────────────────┘
+```
+
+### Modelos en Coral Edge TPU
+
+| Modelo | Archivo | Tamaño |
+|--------|---------|--------|
+| Detección de placas | `placa_detector_yolo11n_dynamic_range_quant.tflite` | ~2.8 MB |
+| Detección de vehículos | `yolo11n_coco_vehicle_int8.tflite` | ~2.89 MB |
+
+Ambos modelos se ejecutan secuencialmente en el Edge TPU con latencia mínima.
 
 ---
 

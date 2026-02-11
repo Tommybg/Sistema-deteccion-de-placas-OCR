@@ -352,6 +352,10 @@ def parse_args():
         "--data", type=str, default=None,
         help="Ruta a data.yaml para calibración INT8"
     )
+    parser.add_argument(
+        "--coco", action="store_true",
+        help="También exportar el modelo COCO (yolo11n.pt) para detección de vehículos"
+    )
 
     return parser.parse_args()
 
@@ -439,6 +443,33 @@ def main():
         for nombre, path in modelos_exportados.items():
             if path and path.suffix == ".tflite":
                 validar_tflite(path)
+
+    # Exportar modelo COCO para detección de vehículos
+    if args.coco:
+        coco_model_path = Path(__file__).parent / "yolo11n.pt"
+        if coco_model_path.exists():
+            print("\n" + "=" * 70)
+            print("   EXPORTACIÓN MODELO COCO (DETECCIÓN DE VEHÍCULOS)")
+            print("=" * 70)
+            coco_model = YOLO(str(coco_model_path))
+            try:
+                coco_exported = coco_model.export(
+                    format="tflite",
+                    imgsz=640,
+                    int8=True,
+                    data=data_yaml,
+                )
+                if coco_exported:
+                    coco_path = Path(coco_exported)
+                    dest = MODELS_DIR / "tflite_exports" / "yolo11n_coco_vehicle_int8.tflite"
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(coco_path, dest)
+                    modelos_exportados["coco_vehicle_int8"] = dest
+                    print(f"   ✅ Modelo COCO exportado: {dest}")
+            except Exception as e:
+                print(f"   ❌ Error exportando modelo COCO: {e}")
+        else:
+            print(f"   ⚠️  Modelo COCO no encontrado: {coco_model_path}")
 
     # Organizar modelos
     organizar_modelos_exportados(output_dir)

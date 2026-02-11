@@ -17,6 +17,8 @@ RUN pip install --no-cache-dir -r requirements-deploy.txt
 
 # Copiar archivos de la app
 COPY app_cloud.py .
+COPY scripts/vehicle_detector.py scripts/vehicle_detector.py
+COPY scripts/yolo11n.pt scripts/yolo11n.pt
 COPY models/ models/
 COPY samples/ samples/
 COPY .streamlit/ .streamlit/

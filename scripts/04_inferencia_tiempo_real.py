@@ -38,7 +38,8 @@ OUTPUT_DIR = PROJECT_DIR / "output"
 LOGS_DIR = PROJECT_DIR / "logs"
 
 # Colores para visualización (BGR)
-COLOR_BBOX = (0, 255, 0)      # Verde para bounding box
+COLOR_BBOX = (0, 255, 0)      # Verde para bounding box de placa
+COLOR_VEHICLE_BBOX = (255, 0, 0)  # Azul para bounding box de vehículo
 COLOR_TEXT_BG = (0, 0, 0)      # Negro para fondo de texto
 COLOR_TEXT = (255, 255, 255)   # Blanco para texto
 COLOR_OCR = (0, 255, 255)      # Amarillo para texto OCR
@@ -222,7 +223,8 @@ class ANPRSystem:
     """
 
     def __init__(self, detector: PlateDetector, ocr: PlateOCR,
-                 log_file: Path = None, min_plate_size: int = 50):
+                 log_file: Path = None, min_plate_size: int = 50,
+                 vehicle_detector=None):
         """
         Inicializa el sistema ANPR.
 
@@ -231,11 +233,13 @@ class ANPRSystem:
             ocr: Instancia de PlateOCR
             log_file: Archivo para logging de placas
             min_plate_size: Tamaño mínimo de placa para OCR
+            vehicle_detector: Instancia de VehicleDetector (opcional)
         """
         self.detector = detector
         self.ocr = ocr
         self.log_file = log_file
         self.min_plate_size = min_plate_size
+        self.vehicle_detector = vehicle_detector
 
         # Historial de placas (para evitar duplicados)
         self.plate_history = deque(maxlen=100)
@@ -258,9 +262,9 @@ class ANPRSystem:
 
         with open(self.log_file, "w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
-            writer.writerow(["timestamp", "plate_text", "confidence", "x1", "y1", "x2", "y2"])
+            writer.writerow(["timestamp", "plate_text", "confidence", "x1", "y1", "x2", "y2", "vehicle_type"])
 
-    def _log_plate(self, plate_text: str, conf: float, bbox: tuple):
+    def _log_plate(self, plate_text: str, conf: float, bbox: tuple, vehicle_type: str = ""):
         """Registra una placa detectada."""
         if self.log_file is None:
             return
@@ -268,7 +272,7 @@ class ANPRSystem:
         timestamp = datetime.now().isoformat()
         with open(self.log_file, "a", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
-            writer.writerow([timestamp, plate_text, f"{conf:.2f}", *bbox])
+            writer.writerow([timestamp, plate_text, f"{conf:.2f}", *bbox, vehicle_type])
 
     def process_frame(self, frame: np.ndarray) -> tuple:
         """
@@ -282,11 +286,26 @@ class ANPRSystem:
         """
         self.stats["frames_processed"] += 1
 
+        # Detectar vehículos (si el detector está disponible)
+        vehicles = []
+        if self.vehicle_detector is not None:
+            vehicles = self.vehicle_detector.detect(frame)
+
         # Detectar placas
         detections = self.detector.detect(frame)
 
         results = []
         frame_annotated = frame.copy()
+
+        # Dibujar vehículos en azul
+        for v in vehicles:
+            vx1, vy1, vx2, vy2 = v["bbox"]
+            cv2.rectangle(frame_annotated, (vx1, vy1), (vx2, vy2), COLOR_VEHICLE_BBOX, 2)
+            vlabel = f'{v["type"]} {v["confidence"]:.0%}'
+            (tw, th), _ = cv2.getTextSize(vlabel, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
+            cv2.rectangle(frame_annotated, (vx1, vy1 - th - 10), (vx1 + tw + 10, vy1), COLOR_VEHICLE_BBOX, -1)
+            cv2.putText(frame_annotated, vlabel, (vx1 + 5, vy1 - 5),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, COLOR_TEXT, 1)
 
         for (x1, y1, x2, y2, det_conf) in detections:
             self.stats["plates_detected"] += 1
@@ -311,20 +330,30 @@ class ANPRSystem:
             # Reconocer texto
             plate_text, ocr_conf = self.ocr.recognize(plate_img)
 
+            # Asociar placa a vehículo
+            vehicle_type = ""
+            if self.vehicle_detector is not None and vehicles:
+                from vehicle_detector import VehicleDetector
+                match = VehicleDetector.associate_plate_to_vehicle((x1, y1, x2, y2), vehicles)
+                if match:
+                    vehicle_type = match["type"]
+
             if plate_text:
                 self.stats["plates_recognized"] += 1
 
                 # Evitar duplicados recientes
                 if plate_text not in self.plate_history:
                     self.plate_history.append(plate_text)
-                    self._log_plate(plate_text, det_conf, (x1, y1, x2, y2))
-                    print(f"🚗 Placa detectada: {plate_text} (conf: {det_conf:.2f})")
+                    self._log_plate(plate_text, det_conf, (x1, y1, x2, y2), vehicle_type)
+                    vtype_str = f" [{vehicle_type}]" if vehicle_type else ""
+                    print(f"🚗 Placa detectada: {plate_text} (conf: {det_conf:.2f}){vtype_str}")
 
             results.append({
                 "bbox": (x1, y1, x2, y2),
                 "det_confidence": det_conf,
                 "text": plate_text,
-                "ocr_confidence": ocr_conf
+                "ocr_confidence": ocr_conf,
+                "vehicle_type": vehicle_type,
             })
 
             # Anotar frame
@@ -394,7 +423,7 @@ def abrir_fuente_video(source):
 
 def run_realtime(source, detector: PlateDetector, ocr: PlateOCR,
                  show_video: bool = True, save_video: str = None,
-                 log_file: Path = None):
+                 log_file: Path = None, vehicle_detector=None):
     """
     Ejecuta el sistema ANPR en tiempo real.
 
@@ -422,7 +451,7 @@ def run_realtime(source, detector: PlateDetector, ocr: PlateOCR,
     print(f"   • FPS: {fps}")
 
     # Inicializar sistema ANPR
-    anpr = ANPRSystem(detector, ocr, log_file)
+    anpr = ANPRSystem(detector, ocr, log_file, vehicle_detector=vehicle_detector)
 
     # Inicializar grabador de video (opcional)
     video_writer = None
@@ -543,6 +572,14 @@ def parse_args():
         "--ocr-model", type=str, default="argentinian-plates-cnn-model",
         help="Modelo OCR a usar (default: argentinian-plates-cnn-model)"
     )
+    parser.add_argument(
+        "--vehicle-model", type=str, default=str(Path(__file__).parent / "yolo11n.pt"),
+        help="Ruta al modelo COCO para detección de vehículos (default: scripts/yolo11n.pt)"
+    )
+    parser.add_argument(
+        "--no-vehicle-detection", action="store_true",
+        help="Desactivar la detección de tipo de vehículo"
+    )
 
     return parser.parse_args()
 
@@ -607,6 +644,17 @@ def main():
     # Inicializar OCR
     ocr = PlateOCR(model_name=args.ocr_model)
 
+    # Inicializar detector de vehículos
+    veh_detector = None
+    if not args.no_vehicle_detection:
+        from vehicle_detector import VehicleDetector
+        veh_model_path = Path(args.vehicle_model)
+        if veh_model_path.exists():
+            veh_detector = VehicleDetector(model_path=veh_model_path, device=args.device)
+            print(f"🚗 Detector de vehículos: {veh_model_path}")
+        else:
+            print(f"⚠️  Modelo de vehículos no encontrado: {veh_model_path}")
+
     # Configurar log
     log_file = None
     if args.log:
@@ -620,7 +668,8 @@ def main():
         ocr=ocr,
         show_video=not args.no_display,
         save_video=args.save_video,
-        log_file=log_file
+        log_file=log_file,
+        vehicle_detector=veh_detector,
     )
 
 

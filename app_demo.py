@@ -16,6 +16,7 @@ import cv2
 import numpy as np
 from PIL import Image
 import io
+from scripts.vehicle_detector import VehicleDetector
 
 # Rutas del proyecto
 PROJECT_DIR = Path(__file__).parent
@@ -86,6 +87,12 @@ def load_detector():
 
 
 @st.cache_resource
+def load_vehicle_detector():
+    """Carga el modelo COCO para detección de tipo de vehículo."""
+    return VehicleDetector()
+
+
+@st.cache_resource
 def load_ocr():
     """Carga el modelo OCR para lectura de placas."""
     try:
@@ -96,37 +103,66 @@ def load_ocr():
         return None
 
 
-def detect_plates(model, image_np):
+def detect_plates(model, image_np, vehicle_detector=None):
     """
-    Detecta placas en la imagen.
-    
+    Detecta placas y vehículos en la imagen.
+
     Returns:
-        results: Resultados de YOLO
         annotated: Imagen con anotaciones
-        plates: Lista de recortes de placas
+        plates: Lista de recortes de placas (con vehicle_type si disponible)
+        vehicles: Lista de vehículos detectados
     """
-    # Ejecutar detección
+    # Detectar vehículos primero
+    vehicles = []
+    if vehicle_detector is not None:
+        vehicles = vehicle_detector.detect(image_np)
+
+    # Detectar placas
     results = model(image_np, verbose=False)
-    
-    # Imagen anotada
-    annotated = results[0].plot()
-    
-    # Extraer recortes de placas
+
+    # Construir imagen anotada manualmente
+    annotated = image_np.copy()
+
+    # Dibujar vehículos en azul
+    for v in vehicles:
+        x1, y1, x2, y2 = v["bbox"]
+        cv2.rectangle(annotated, (x1, y1), (x2, y2), (255, 0, 0), 2)
+        label = f'{v["type"]} {v["confidence"]:.0%}'
+        (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 1)
+        cv2.rectangle(annotated, (x1, y1 - th - 8), (x1 + tw + 4, y1), (255, 0, 0), -1)
+        cv2.putText(annotated, label, (x1 + 2, y1 - 4), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
+
+    # Extraer recortes de placas y dibujar en verde
     plates = []
     for r in results[0].boxes:
         box = r.xyxy[0].cpu().numpy().astype(int)
         x1, y1, x2, y2 = box
         conf = float(r.conf[0])
-        
-        # Recortar placa
+
         plate_crop = image_np[y1:y2, x1:x2]
-        plates.append({
+        plate_info = {
             'image': plate_crop,
             'box': (x1, y1, x2, y2),
-            'confidence': conf
-        })
-    
-    return results, annotated, plates
+            'confidence': conf,
+            'vehicle_type': None,
+        }
+
+        # Asociar placa a vehículo
+        if vehicle_detector is not None and vehicles:
+            match = VehicleDetector.associate_plate_to_vehicle((x1, y1, x2, y2), vehicles)
+            if match:
+                plate_info['vehicle_type'] = match["type"]
+
+        plates.append(plate_info)
+
+        # Dibujar placa en verde
+        cv2.rectangle(annotated, (x1, y1), (x2, y2), (0, 255, 0), 2)
+        plabel = f'Placa {conf:.0%}'
+        (tw, th), _ = cv2.getTextSize(plabel, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 1)
+        cv2.rectangle(annotated, (x1, y1 - th - 8), (x1 + tw + 4, y1), (0, 255, 0), -1)
+        cv2.putText(annotated, plabel, (x1 + 2, y1 - 4), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 1)
+
+    return annotated, plates, vehicles
 
 
 def read_plate_text(ocr, plate_image):
@@ -176,8 +212,9 @@ def main():
         # Info del modelo
         st.header("📊 Info del Modelo")
         st.info("""
-        **Detector:** YOLOv11n  
-        **OCR:** fast-plate-ocr  
+        **Detector Placas:** YOLOv11n
+        **Detector Vehículos:** YOLOv11n (COCO)
+        **OCR:** fast-plate-ocr
         **Modelo:** cct-xs-v1-global
         """)
     
@@ -185,7 +222,8 @@ def main():
     with st.spinner("Cargando modelos..."):
         detector = load_detector()
         ocr = load_ocr()
-    
+        vehicle_detector = load_vehicle_detector()
+
     if detector is None:
         st.error("❌ No se encontró el modelo de detección. Entrena primero con 02_entrenar_modelo.py")
         return
@@ -234,9 +272,9 @@ def main():
     if image is not None:
         st.divider()
         
-        # Detectar placas
-        with st.spinner("⏳ Detectando placas..."):
-            results, annotated, plates = detect_plates(detector, image_np)
+        # Detectar placas y vehículos
+        with st.spinner("⏳ Detectando vehículos y placas..."):
+            annotated, plates, vehicles = detect_plates(detector, image_np, vehicle_detector)
         
         # Mostrar resultados
         col1, col2 = st.columns(2)
@@ -272,27 +310,32 @@ def main():
                     
                     st.markdown(f'<p class="plate-text">{plate_text}</p>', unsafe_allow_html=True)
                     st.markdown(f'<p class="confidence">Confianza: {plate["confidence"]:.1%}</p>', unsafe_allow_html=True)
-                    
+                    if plate.get('vehicle_type'):
+                        st.markdown(f'<p class="confidence">🚗 Tipo: {plate["vehicle_type"]}</p>', unsafe_allow_html=True)
+
                     st.markdown('</div>', unsafe_allow_html=True)
         else:
             st.info("No se detectaron placas en esta imagen. Intenta con otra imagen o ajusta el umbral de confianza.")
         
         # Estadísticas
         st.divider()
-        col_stats = st.columns(4)
-        
+        col_stats = st.columns(5)
+
         with col_stats[0]:
-            st.metric("Placas Detectadas", len(plates))
-        
+            st.metric("Vehículos Detectados", len(vehicles))
+
         with col_stats[1]:
+            st.metric("Placas Detectadas", len(plates))
+
+        with col_stats[2]:
             if plates:
                 avg_conf = sum(p['confidence'] for p in plates) / len(plates)
                 st.metric("Confianza Promedio", f"{avg_conf:.1%}")
-        
-        with col_stats[2]:
-            st.metric("Modelo", "YOLOv11n")
-        
+
         with col_stats[3]:
+            st.metric("Modelo", "YOLOv11n")
+
+        with col_stats[4]:
             st.metric("OCR", "cct-xs-v1")
 
 
