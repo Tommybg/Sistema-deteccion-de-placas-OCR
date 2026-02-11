@@ -1,0 +1,24 @@
+# ========================================
+# SISTEMA ANPR - DEPENDENCIAS PARA DEPLOY
+# (Sin TensorFlow - no necesario para demo)
+# ========================================
+
+# Core ML/DL
+ultralytics>=8.0.0
+torch>=2.0.0
+torchvision>=0.15.0
+
+# OCR
+fast-plate-ocr[onnx]
+
+# Computer Vision
+opencv-python-headless>=4.5.0
+numpy>=1.21.0
+pillow>=9.0.0
+
+# Web App
+streamlit>=1.30.0
+
+# Utilidades
+pyyaml>=6.0
+tqdm>=4.64.0

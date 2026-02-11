@@ -23,6 +23,9 @@ wandb/
 .vscode/
 .idea/
 
+# --- Archivos Temporales Grandes ---
+*.npy
+
 # --- NOTA SOBRE MODELOS ---
 # models/*.pt       -> Se suben (Son pequeños < 100MB)
 # models/*.tflite   -> Se suben (Para uso inmediato)

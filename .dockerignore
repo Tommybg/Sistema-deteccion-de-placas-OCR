@@ -1,0 +1,43 @@
+# Entorno virtual
+anpr_env/
+venv/
+.env
+
+# Datasets pesados (samples/ sí se incluye)
+dataset_combinado/
+datasets/
+Proyecto-Placas-*/
+
+# Caché y compilados
+__pycache__/
+*.py[cod]
+.DS_Store
+
+# Entrenamiento
+runs/
+output/
+wandb/
+logs/
+
+# IDEs
+.vscode/
+.idea/
+
+# Git
+.git/
+.gitignore
+
+# Docs
+docs/
+*.md
+!README.md
+
+# Scripts de setup
+setup.sh
+setup.bat
+
+# Modelos innecesarios para deploy
+models/exports/
+models/tflite_exports/
+models/placa_detector_yolo11n_saved_model/
+models/*.onnx
