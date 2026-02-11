@@ -19,6 +19,9 @@ runs/
 output/
 wandb/
 
+# --- Documentación interna ---
+docs/
+
 # --- IDEs ---
 .vscode/
 .idea/
