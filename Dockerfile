@@ -1,4 +1,4 @@
-But if it tries TensorFlow first, shouldn't it also download TensorFlow from the requirements? FROM python:3.11-slim
+FROM python:3.11-slim
 
 # Dependencias del sistema para OpenCV
 RUN apt-get update && apt-get install -y --no-install-recommends \
