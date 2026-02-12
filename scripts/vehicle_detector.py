@@ -15,11 +15,12 @@ DEFAULT_MODEL_PATH = Path(__file__).parent / "yolo11n.pt"
 
 
 class VehicleDetector:
-    def __init__(self, model_path=None, confidence=0.4, device="cpu"):
+    def __init__(self, model_path=None, confidence=0.4, device="cpu", color_classifier=None):
         self.model_path = str(model_path or DEFAULT_MODEL_PATH)
         self.confidence = confidence
         self.device = device
         self.model = YOLO(self.model_path)
+        self.color_classifier = color_classifier
 
     def detect(self, frame):
         """Run vehicle detection on a frame.
@@ -33,13 +34,28 @@ class VehicleDetector:
                 cls_id = int(box.cls[0])
                 if cls_id in VEHICLE_CLASS_IDS:
                     x1, y1, x2, y2 = box.xyxy[0].tolist()
-                    vehicles.append({
+                    vehicle = {
                         "bbox": (int(x1), int(y1), int(x2), int(y2)),
                         "type": VEHICLE_CLASSES[cls_id],
                         "type_en": VEHICLE_CLASSES_EN[cls_id],
                         "confidence": float(box.conf[0]),
                         "class_id": cls_id,
-                    })
+                        "color": None,
+                        "color_confidence": None,
+                    }
+                    vehicles.append(vehicle)
+
+        # Classify color for each vehicle if classifier is available
+        if self.color_classifier is not None:
+            h, w = frame.shape[:2]
+            for v in vehicles:
+                x1, y1, x2, y2 = v["bbox"]
+                crop = frame[max(0, y1):min(h, y2), max(0, x1):min(w, x2)]
+                if crop.size > 0:
+                    result = self.color_classifier.classify(crop)
+                    v["color"] = result["color"]
+                    v["color_confidence"] = result["confidence"]
+
         return vehicles
 
     @staticmethod

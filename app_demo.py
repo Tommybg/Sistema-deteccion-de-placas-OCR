@@ -17,6 +17,7 @@ import numpy as np
 from PIL import Image
 import io
 from scripts.vehicle_detector import VehicleDetector
+from scripts.color_classifier import ColorClassifier
 
 # Rutas del proyecto
 PROJECT_DIR = Path(__file__).parent
@@ -87,9 +88,18 @@ def load_detector():
 
 
 @st.cache_resource
-def load_vehicle_detector():
+def load_color_classifier():
+    """Carga el modelo de clasificación de color de vehículo."""
+    from scripts.color_classifier import DEFAULT_MODEL_PATH
+    if DEFAULT_MODEL_PATH.exists():
+        return ColorClassifier()
+    return None
+
+
+@st.cache_resource
+def load_vehicle_detector(_color_classifier):
     """Carga el modelo COCO para detección de tipo de vehículo."""
-    return VehicleDetector()
+    return VehicleDetector(color_classifier=_color_classifier)
 
 
 @st.cache_resource
@@ -127,7 +137,8 @@ def detect_plates(model, image_np, vehicle_detector=None):
     for v in vehicles:
         x1, y1, x2, y2 = v["bbox"]
         cv2.rectangle(annotated, (x1, y1), (x2, y2), (255, 0, 0), 2)
-        label = f'{v["type"]} {v["confidence"]:.0%}'
+        color_label = f' | {v["color"]} {v["color_confidence"]:.0%}' if v.get("color") else ""
+        label = f'{v["type"]} {v["confidence"]:.0%}{color_label}'
         (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 1)
         cv2.rectangle(annotated, (x1, y1 - th - 8), (x1 + tw + 4, y1), (255, 0, 0), -1)
         cv2.putText(annotated, label, (x1 + 2, y1 - 4), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
@@ -152,6 +163,8 @@ def detect_plates(model, image_np, vehicle_detector=None):
             match = VehicleDetector.associate_plate_to_vehicle((x1, y1, x2, y2), vehicles)
             if match:
                 plate_info['vehicle_type'] = match["type"]
+                plate_info['vehicle_color'] = match.get("color")
+                plate_info['vehicle_color_confidence'] = match.get("color_confidence")
 
         plates.append(plate_info)
 
@@ -184,17 +197,17 @@ def read_plate_text(ocr, plate_image):
 
 def main():
     # Header
-    st.markdown('<p class="main-header">🚗 Sistema ANPR</p>', unsafe_allow_html=True)
+    st.markdown('<p class="main-header">Sistema ANPR</p>', unsafe_allow_html=True)
     st.markdown('<p class="sub-header">Reconocimiento Automático de Placas Vehiculares</p>', unsafe_allow_html=True)
     
     # Sidebar
     with st.sidebar:
-        st.header("⚙️ Configuración")
+        st.header("Configuración")
         
         # Fuente de imagen
         source = st.radio(
             "Fuente de imagen:",
-            ["📁 Subir imagen", "🎥 Webcam", "📂 Dataset de prueba"],
+            [" Subir imagen", "Webcam", "Dataset de prueba"],
             index=0
         )
         
@@ -210,19 +223,23 @@ def main():
         st.divider()
         
         # Info del modelo
-        st.header("📊 Info del Modelo")
+        st.header(" Info del Modelo")
+
         st.info("""
-        **Detector Placas:** YOLOv11n
-        **Detector Vehículos:** YOLOv11n (COCO)
-        **OCR:** fast-plate-ocr
-        **Modelo:** cct-xs-v1-global
+        - **Detector Placas:** YOLOv11n
+        - **Detector Vehículos:** YOLOv11n (COCO)
+        - **Color Vehículo:** EfficientNetB0
+        - **OCR:** fast-plate-ocr
+            - **Modelo:** cct-xs-v1-global
         """)
+
     
     # Cargar modelos
     with st.spinner("Cargando modelos..."):
         detector = load_detector()
         ocr = load_ocr()
-        vehicle_detector = load_vehicle_detector()
+        color_classifier = load_color_classifier()
+        vehicle_detector = load_vehicle_detector(color_classifier)
 
     if detector is None:
         st.error("❌ No se encontró el modelo de detección. Entrena primero con 02_entrenar_modelo.py")
@@ -231,7 +248,7 @@ def main():
     # Contenedor principal
     image = None
     
-    if source == "📁 Subir imagen":
+    if source == "Subir imagen":
         uploaded_file = st.file_uploader(
             "Selecciona una imagen",
             type=['jpg', 'jpeg', 'png', 'bmp'],
@@ -244,14 +261,14 @@ def main():
             image = Image.open(io.BytesIO(image_bytes))
             image_np = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
     
-    elif source == "🎥 Webcam":
+    elif source == "Webcam":
         camera_input = st.camera_input("Captura una foto de un vehículo")
         
         if camera_input is not None:
             image = Image.open(camera_input)
             image_np = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
     
-    elif source == "📂 Dataset de prueba":
+    elif source == "Dataset de prueba":
         # Listar imágenes de prueba
         test_dir = DATASET_DIR / "test" / "images"
         if test_dir.exists():
@@ -273,25 +290,25 @@ def main():
         st.divider()
         
         # Detectar placas y vehículos
-        with st.spinner("⏳ Detectando vehículos y placas..."):
+        with st.spinner("Detectando vehículos y placas..."):
             annotated, plates, vehicles = detect_plates(detector, image_np, vehicle_detector)
         
         # Mostrar resultados
         col1, col2 = st.columns(2)
         
         with col1:
-            st.subheader("📷 Imagen Original")
+            st.subheader("Imagen Original")
             st.image(image, use_container_width=True)
         
         with col2:
-            st.subheader("🎯 Detecciones")
+            st.subheader("Detecciones")
             # Convertir BGR a RGB para mostrar
             annotated_rgb = cv2.cvtColor(annotated, cv2.COLOR_BGR2RGB)
             st.image(annotated_rgb, use_container_width=True)
         
         # Mostrar placas detectadas
         st.divider()
-        st.subheader(f"🚘 Placas Detectadas: {len(plates)}")
+        st.subheader(f"Placas Detectadas: {len(plates)}")
         
         if plates:
             plate_cols = st.columns(min(len(plates), 4))
@@ -311,7 +328,10 @@ def main():
                     st.markdown(f'<p class="plate-text">{plate_text}</p>', unsafe_allow_html=True)
                     st.markdown(f'<p class="confidence">Confianza: {plate["confidence"]:.1%}</p>', unsafe_allow_html=True)
                     if plate.get('vehicle_type'):
-                        st.markdown(f'<p class="confidence">🚗 Tipo: {plate["vehicle_type"]}</p>', unsafe_allow_html=True)
+                        st.markdown(f'<p class="confidence">Tipo: {plate["vehicle_type"]}</p>', unsafe_allow_html=True)
+                    if plate.get('vehicle_color'):
+                        color_conf = plate.get('vehicle_color_confidence', 0)
+                        st.markdown(f'<p class="confidence">Color: {plate["vehicle_color"]} ({color_conf:.0%})</p>', unsafe_allow_html=True)
 
                     st.markdown('</div>', unsafe_allow_html=True)
         else:

@@ -55,10 +55,12 @@ El sistema utiliza un pipeline multi-modelo que procesa cada frame de video en s
 | **Tipo de Vehículo** | Automóvil, Motocicleta, Bus, Camión | ✅ Listo | ~2.8 MB |
 | **Detección de Placas** | Localiza placas en el frame | ✅ Listo | ~2.8 MB |
 | **OCR** | Lee caracteres alfanuméricos de la placa | ✅ Listo | — |
-| **Color** | Blanco, negro, rojo, azul, etc. | 🔜 Fase 2 | ~3 MB |
+| **Color de Vehículo** | 15 colores: Blanco, Negro, Rojo, Azul, etc. | ✅ Listo | ~4 MB |
 | **Marca** | Chevrolet, Renault, Mazda, etc. | 🔜 Fase 3 | ~4 MB |
 
 **Huella total en Coral Edge TPU:** ~12-13 MB (los modelos se ejecutan secuencialmente, ~30-40ms por frame → **25+ FPS en tiempo real**).
+
+> **Detalle del Modelo de Color:** EfficientNetB0 con Transfer Learning desde ImageNet. Entrenado con ~10,500 imágenes del dataset VCoR (15 clases). Estrategia de 2 fases: classifier-head-only (30 epochs) + fine-tuning completo (20 epochs).
 
 ---
 
@@ -67,19 +69,25 @@ El sistema utiliza un pipeline multi-modelo que procesa cada frame de video en s
 ```
 anpr_project/
 ├── setup.sh                 # Instalación del entorno
-├── app_demo.py              # Demo web Streamlit (local)
-├── app_cloud.py             # Demo web Streamlit (Railway)
+├── app_demo.py              # Demo web Streamlit (local)             
 ├── requirements.txt         # Dependencias
 ├── scripts/                 # Pipeline de ML
 │   ├── 01_preparar_dataset.py
 │   ├── 02_entrenar_modelo.py
 │   ├── 03_exportar_tflite.py
 │   ├── 04_inferencia_tiempo_real.py
+│   ├── 05_entrenar_color.py         # Entrenamiento clasificador de color
+│   ├── 06_exportar_color_tflite.py  # Exportación color a TFLite INT8
 │   ├── vehicle_detector.py          # Módulo de detección de tipo de vehículo
+│   ├── color_classifier.py          # Módulo de clasificación de color
 │   └── yolo11n.pt                   # Modelo de detección de vehículos (~5 MB)
 ├── models/                  # Modelos entrenados
 │   ├── placa_detector_yolo11n.pt       # Detección de placas - PyTorch (5.2 MB)
 │   ├── placa_detector_yolo11n.onnx     # Detección de placas - ONNX (10 MB)
+│   ├── color_classifier_efficientnet.h5  # Color - Keras (~15 MB)
+│   ├── tflite_exports/
+│   │   ├── yolo11n_coco_vehicle_int8.tflite  # Vehículos (2.9 MB)
+│   │   └── color_classifier_int8.tflite      # Color (~4 MB) ⭐
 │   └── placa_detector_yolo11n_saved_model/
 │       ├── placa_detector_yolo11n_float32.tflite    # 10 MB
 │       ├── placa_detector_yolo11n_float16.tflite    # 5.1 MB
@@ -141,6 +149,39 @@ Módulo compartido de detección de tipo de vehículo. Clasifica cada vehículo 
 | 🚛 Camión | Camiones, furgones |
 
 El módulo también se encarga de **asociar cada placa detectada con su vehículo correspondiente**, usando la posición espacial de los bounding boxes (la placa debe estar contenida dentro del vehículo).
+
+### [05_entrenar_color.py](scripts/05_entrenar_color.py) / [06_exportar_color_tflite.py](scripts/06_exportar_color_tflite.py)
+
+**Clasificador de color de vehículos** — Detecta 15 colores distintos usando EfficientNetB0.
+
+#### ¿Por qué EfficientNetB0?
+
+- **Tamaño compacto:** 5.3M parámetros → ~4 MB en INT8 TFLite (perfecto para Coral TPU)
+- **Transfer Learning eficiente:** Pretrenado en ImageNet, se adapta rápido con datasets pequeños
+- **Arquitectura moderna:** Mejor que MobileNet en precisión/tamaño (compound scaling)
+- **Entrada 224×224:** Balance ideal entre precisión y velocidad en edge devices
+
+#### Colores detectados (15 clases)
+
+Beige, Negro, Azul, Café, Dorado, Verde, Gris, Naranja, Rosa, Morado, Rojo, Plata, Canela, Blanco, Amarillo
+
+#### Estrategia de entrenamiento en 2 fases
+
+| Fase | Base EfficientNetB0 | Head (clasificador) | Learning Rate | Epochs |
+|------|---------------------|---------------------|---------------|--------|
+| 1 | ❄️ Frozen | ✅ Entrenable | 1e-3 | 30 |
+| 2 | 🔥 Unfrozen | ✅ Entrenable | 1e-5 | 20 |
+
+**Fase 1** preserva features de ImageNet y solo entrena el clasificador final.  
+**Fase 2** ajusta toda la red con learning rate muy bajo para ganar 2-5% de precisión.
+
+```bash
+# Entrenar color classifier
+python scripts/05_entrenar_color.py --data datasets/vehicle_colors
+
+# Exportar a TFLite INT8 para Coral
+python scripts/06_exportar_color_tflite.py
+```
 
 ### [04_inferencia_tiempo_real.py](scripts/04_inferencia_tiempo_real.py)
 
@@ -231,7 +272,7 @@ Para cada vehículo detectado, el sistema entrega:
 │  📋 Placa: ABC-123          │
 │  📊 Confianza: 98.5%        │
 │  🚗 Tipo: Automóvil         │
-│  🎨 Color: Próximamente     │
+│  🎨 Color: Blanco (92%)     │
 │  🏭 Marca: Próximamente     │
 └─────────────────────────────┘
 ```
@@ -241,7 +282,8 @@ Para cada vehículo detectado, el sistema entrega:
 | Modelo | Archivo | Tamaño |
 |--------|---------|--------|
 | Detección de placas | `placa_detector_yolo11n_dynamic_range_quant.tflite` | ~2.8 MB |
-| Detección de vehículos | `yolo11n_coco_vehicle_int8.tflite` | ~2.89 MB |
+| Detección de vehículos | `yolo11n_coco_vehicle_int8.tflite` | ~2.9 MB |
+| Clasificador de color | `color_classifier_int8.tflite` | ~4 MB |
 
 Ambos modelos se ejecutan secuencialmente en el Edge TPU con latencia mínima.
 
@@ -261,6 +303,12 @@ python scripts/02_entrenar_modelo.py --epochs 200
 
 # Exportar para Edge
 python scripts/03_exportar_tflite.py --formato int8
+
+# Entrenar clasificador de color
+python scripts/05_entrenar_color.py
+
+# Exportar color a TFLite
+python scripts/06_exportar_color_tflite.py
 
 # Demo Web (Streamlit)
 streamlit run app_demo.py
