@@ -90,10 +90,10 @@ def load_detector():
 
 @st.cache_resource
 def load_color_classifier():
-    """Carga el modelo de clasificación de color de vehículo."""
-    from scripts.color_classifier import DEFAULT_MODEL_PATH
-    if DEFAULT_MODEL_PATH.exists():
-        return ColorClassifier()
+    """Carga el modelo de clasificación de color de vehículo (TFLite para deploy)."""
+    from scripts.color_classifier import DEFAULT_TFLITE_PATH
+    if DEFAULT_TFLITE_PATH.exists():
+        return ColorClassifier(model_path=DEFAULT_TFLITE_PATH, use_tflite=True)
     return None
 
 

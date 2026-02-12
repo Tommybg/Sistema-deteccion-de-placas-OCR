@@ -19,6 +19,9 @@ pillow>=9.0.0
 # Web App
 streamlit>=1.30.0
 
+# Color classifier (lightweight TFLite inference)
+tflite-runtime>=2.14.0
+
 # Utilidades
 pyyaml>=6.0
 tqdm>=4.64.0

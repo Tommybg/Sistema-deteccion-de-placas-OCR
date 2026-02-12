@@ -31,9 +31,13 @@ class ColorClassifier:
         self.use_tflite = use_tflite
 
         if use_tflite:
-            import tensorflow as tf
+            # Try lightweight tflite-runtime first, fall back to full TF
+            try:
+                from tflite_runtime.interpreter import Interpreter
+            except ImportError:
+                from tensorflow.lite import Interpreter
             model_path = str(model_path or DEFAULT_TFLITE_PATH)
-            self.interpreter = tf.lite.Interpreter(model_path=model_path)
+            self.interpreter = Interpreter(model_path=model_path)
             self.interpreter.allocate_tensors()
             self.input_details = self.interpreter.get_input_details()
             self.output_details = self.interpreter.get_output_details()

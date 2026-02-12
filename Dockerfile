@@ -21,6 +21,7 @@ COPY scripts/vehicle_detector.py scripts/vehicle_detector.py
 COPY scripts/color_classifier.py scripts/color_classifier.py
 COPY scripts/yolo11n.pt scripts/yolo11n.pt
 COPY models/ models/
+COPY models/tflite_exports/ models/tflite_exports/
 COPY samples/ samples/
 COPY .streamlit/ .streamlit/
 
