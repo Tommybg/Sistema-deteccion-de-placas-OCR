@@ -12,7 +12,10 @@ dataset_combinado/
 datasets/
 Proyecto-Placas-*/
 *.zip
-
+Dataset-marcas/
+placas_dataset/
+dataset_marcas_combinado/
+docs/
 # --- Resultados de Entrenamiento ---
 # Ignoramos logs masivos y checkpoints intermedios
 runs/

@@ -356,6 +356,10 @@ def parse_args():
         "--coco", action="store_true",
         help="También exportar el modelo COCO (yolo11n.pt) para detección de vehículos"
     )
+    parser.add_argument(
+        "--brand", action="store_true",
+        help="También exportar el modelo de marca (marca_detector_yolo11n.pt)"
+    )
 
     return parser.parse_args()
 
@@ -470,6 +474,40 @@ def main():
                 print(f"   ❌ Error exportando modelo COCO: {e}")
         else:
             print(f"   ⚠️  Modelo COCO no encontrado: {coco_model_path}")
+
+    # Exportar modelo de marca vehicular
+    if args.brand:
+        brand_model_path = MODELS_DIR / "marca_detector_yolo11n.pt"
+        if brand_model_path.exists():
+            print("\n" + "=" * 70)
+            print("   EXPORTACIÓN MODELO MARCA (DETECCIÓN DE LOGOS)")
+            print("=" * 70)
+            brand_model = YOLO(str(brand_model_path))
+
+            # Usar data.yaml de marcas para calibración INT8
+            brand_data_yaml = str(PROJECT_DIR / "dataset_marcas_combinado" / "data.yaml")
+            if not Path(brand_data_yaml).exists():
+                brand_data_yaml = data_yaml  # Fallback
+
+            try:
+                brand_exported = brand_model.export(
+                    format="tflite",
+                    imgsz=640,
+                    int8=True,
+                    data=brand_data_yaml,
+                )
+                if brand_exported:
+                    brand_path = Path(brand_exported)
+                    dest = MODELS_DIR / "tflite_exports" / "marca_detector_yolo11n_int8.tflite"
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(brand_path, dest)
+                    modelos_exportados["brand_int8"] = dest
+                    print(f"   ✅ Modelo de marca exportado: {dest}")
+            except Exception as e:
+                print(f"   ❌ Error exportando modelo de marca: {e}")
+        else:
+            print(f"   ⚠️  Modelo de marca no encontrado: {brand_model_path}")
+            print(f"   Ejecuta primero: python scripts/06_entrenar_marca.py")
 
     # Organizar modelos
     organizar_modelos_exportados(output_dir)

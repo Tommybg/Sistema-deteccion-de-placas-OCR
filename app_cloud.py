@@ -18,6 +18,7 @@ import numpy as np
 from PIL import Image
 import io
 from scripts.vehicle_detector import VehicleDetector
+from scripts.brand_detector import BrandDetector
 
 # Rutas del proyecto
 PROJECT_DIR = Path(__file__).parent
@@ -94,6 +95,15 @@ def load_vehicle_detector():
 
 
 @st.cache_resource
+def load_brand_detector():
+    """Carga el modelo para detección de marca de vehículo."""
+    model_path = MODELS_DIR / "marca_detector_yolo11n.pt"
+    if not model_path.exists():
+        return None
+    return BrandDetector(model_path=str(model_path))
+
+
+@st.cache_resource
 def load_ocr():
     """Carga el modelo OCR para lectura de placas."""
     try:
@@ -104,13 +114,13 @@ def load_ocr():
         return None
 
 
-def detect_plates(model, image_np, vehicle_detector=None):
+def detect_plates(model, image_np, vehicle_detector=None, brand_detector=None):
     """
-    Detecta placas y vehículos en la imagen.
+    Detecta placas, vehículos y marcas en la imagen.
 
     Returns:
         annotated: Imagen con anotaciones
-        plates: Lista de recortes de placas (con vehicle_type si disponible)
+        plates: Lista de recortes de placas (con vehicle_type y brand si disponible)
         vehicles: Lista de vehículos detectados
     """
     # Detectar vehículos primero
@@ -118,8 +128,20 @@ def detect_plates(model, image_np, vehicle_detector=None):
     if vehicle_detector is not None:
         vehicles = vehicle_detector.detect(image_np)
 
+    # Detectar marcas
+    brand_detections = []
+    vehicle_brands = {}
+    if brand_detector is not None:
+        brand_detections = brand_detector.detect(image_np)
+        for bd in brand_detections:
+            matched = BrandDetector.associate_brand_to_vehicle(bd["bbox"], vehicles)
+            if matched is not None:
+                v_id = id(matched)
+                if v_id not in vehicle_brands or bd["confidence"] > vehicle_brands[v_id][1]:
+                    vehicle_brands[v_id] = (bd["brand"], bd["confidence"])
+
     # Detectar placas
-    results = model(image_np, verbose=False)
+    results = model(image_np, verbose=False, device="cpu")
 
     # Construir imagen anotada manualmente
     annotated = image_np.copy()
@@ -129,9 +151,17 @@ def detect_plates(model, image_np, vehicle_detector=None):
         x1, y1, x2, y2 = v["bbox"]
         cv2.rectangle(annotated, (x1, y1), (x2, y2), (255, 0, 0), 2)
         label = f'{v["type"]} {v["confidence"]:.0%}'
+        v_id = id(v)
+        if v_id in vehicle_brands:
+            label += f' | {vehicle_brands[v_id][0]}'
         (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 1)
         cv2.rectangle(annotated, (x1, y1 - th - 8), (x1 + tw + 4, y1), (255, 0, 0), -1)
         cv2.putText(annotated, label, (x1 + 2, y1 - 4), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
+
+    # Dibujar logos de marca en naranja
+    for bd in brand_detections:
+        bx1, by1, bx2, by2 = bd["bbox"]
+        cv2.rectangle(annotated, (bx1, by1), (bx2, by2), (0, 165, 255), 2)
 
     # Extraer recortes de placas y dibujar en verde
     plates = []
@@ -146,6 +176,7 @@ def detect_plates(model, image_np, vehicle_detector=None):
             'box': (x1, y1, x2, y2),
             'confidence': conf,
             'vehicle_type': None,
+            'brand': None,
         }
 
         # Asociar placa a vehículo
@@ -153,6 +184,9 @@ def detect_plates(model, image_np, vehicle_detector=None):
             match = VehicleDetector.associate_plate_to_vehicle((x1, y1, x2, y2), vehicles)
             if match:
                 plate_info['vehicle_type'] = match["type"]
+                v_id = id(match)
+                if v_id in vehicle_brands:
+                    plate_info['brand'] = vehicle_brands[v_id][0]
 
         plates.append(plate_info)
 
@@ -226,8 +260,9 @@ def main():
         st.info("""
         **Detector Placas:** YOLOv11n
         **Detector Vehículos:** YOLOv11n (COCO)
+        **Detector Marcas:** YOLOv11n (30 marcas)
         **OCR:** fast-plate-ocr
-        **Modelo:** cct-xs-v1-global
+        **Modelo OCR:** cct-xs-v1-global
         """)
         
         st.divider()
@@ -238,6 +273,7 @@ def main():
         detector = load_detector()
         ocr = load_ocr()
         vehicle_detector = load_vehicle_detector()
+        brand_detector = load_brand_detector()
 
     if detector is None:
         st.error("❌ No se encontró el modelo de detección.")
@@ -283,7 +319,7 @@ def main():
         
         # Detectar placas y vehículos
         with st.spinner("⏳ Detectando vehículos y placas..."):
-            annotated, plates, vehicles = detect_plates(detector, image_np, vehicle_detector)
+            annotated, plates, vehicles = detect_plates(detector, image_np, vehicle_detector, brand_detector)
         
         # Mostrar resultados
         col1, col2 = st.columns(2)
@@ -318,6 +354,8 @@ def main():
                     st.markdown(f'<p class="confidence">Confianza: {plate["confidence"]:.1%}</p>', unsafe_allow_html=True)
                     if plate.get('vehicle_type'):
                         st.markdown(f'<p class="confidence">🚗 Tipo: {plate["vehicle_type"]}</p>', unsafe_allow_html=True)
+                    if plate.get('brand'):
+                        st.markdown(f'<p class="confidence">🏭 Marca: {plate["brand"]}</p>', unsafe_allow_html=True)
 
                     st.markdown('</div>', unsafe_allow_html=True)
         else:
