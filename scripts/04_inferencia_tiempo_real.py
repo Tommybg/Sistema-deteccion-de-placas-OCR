@@ -43,6 +43,7 @@ COLOR_VEHICLE_BBOX = (255, 0, 0)  # Azul para bounding box de vehículo
 COLOR_TEXT_BG = (0, 0, 0)      # Negro para fondo de texto
 COLOR_TEXT = (255, 255, 255)   # Blanco para texto
 COLOR_OCR = (0, 255, 255)      # Amarillo para texto OCR
+COLOR_BRAND_BBOX = (0, 165, 255)  # Naranja para bounding box de marca
 
 
 class PlateDetector:
@@ -224,7 +225,7 @@ class ANPRSystem:
 
     def __init__(self, detector: PlateDetector, ocr: PlateOCR,
                  log_file: Path = None, min_plate_size: int = 50,
-                 vehicle_detector=None):
+                 vehicle_detector=None, brand_detector=None):
         """
         Inicializa el sistema ANPR.
 
@@ -234,12 +235,14 @@ class ANPRSystem:
             log_file: Archivo para logging de placas
             min_plate_size: Tamaño mínimo de placa para OCR
             vehicle_detector: Instancia de VehicleDetector (opcional)
+            brand_detector: Instancia de BrandDetector (opcional)
         """
         self.detector = detector
         self.ocr = ocr
         self.log_file = log_file
         self.min_plate_size = min_plate_size
         self.vehicle_detector = vehicle_detector
+        self.brand_detector = brand_detector
 
         # Historial de placas (para evitar duplicados)
         self.plate_history = deque(maxlen=100)
@@ -262,9 +265,10 @@ class ANPRSystem:
 
         with open(self.log_file, "w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
-            writer.writerow(["timestamp", "plate_text", "confidence", "x1", "y1", "x2", "y2", "vehicle_type"])
+            writer.writerow(["timestamp", "plate_text", "confidence", "x1", "y1", "x2", "y2", "vehicle_type", "brand"])
 
-    def _log_plate(self, plate_text: str, conf: float, bbox: tuple, vehicle_type: str = ""):
+    def _log_plate(self, plate_text: str, conf: float, bbox: tuple,
+                   vehicle_type: str = "", brand: str = ""):
         """Registra una placa detectada."""
         if self.log_file is None:
             return
@@ -272,7 +276,7 @@ class ANPRSystem:
         timestamp = datetime.now().isoformat()
         with open(self.log_file, "a", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
-            writer.writerow([timestamp, plate_text, f"{conf:.2f}", *bbox, vehicle_type])
+            writer.writerow([timestamp, plate_text, f"{conf:.2f}", *bbox, vehicle_type, brand])
 
     def process_frame(self, frame: np.ndarray) -> tuple:
         """
@@ -294,6 +298,24 @@ class ANPRSystem:
         # Detectar placas
         detections = self.detector.detect(frame)
 
+        # Detectar marcas (si el detector está disponible)
+        brand_detections = []
+        if self.brand_detector is not None:
+            brand_detections = self.brand_detector.detect(frame)
+
+        # Asociar marcas a vehículos
+        vehicle_brands = {}  # vehicle_id -> brand_name
+        if brand_detections and vehicles:
+            from brand_detector import BrandDetector
+            for bd in brand_detections:
+                matched_vehicle = BrandDetector.associate_brand_to_vehicle(
+                    bd["bbox"], vehicles)
+                if matched_vehicle is not None:
+                    v_id = id(matched_vehicle)
+                    # Quedarse con la detección de mayor confianza
+                    if v_id not in vehicle_brands or bd["confidence"] > vehicle_brands[v_id][1]:
+                        vehicle_brands[v_id] = (bd["brand"], bd["confidence"])
+
         results = []
         frame_annotated = frame.copy()
 
@@ -302,10 +324,19 @@ class ANPRSystem:
             vx1, vy1, vx2, vy2 = v["bbox"]
             cv2.rectangle(frame_annotated, (vx1, vy1), (vx2, vy2), COLOR_VEHICLE_BBOX, 2)
             vlabel = f'{v["type"]} {v["confidence"]:.0%}'
+            # Agregar marca al label del vehículo
+            v_id = id(v)
+            if v_id in vehicle_brands:
+                vlabel += f' | {vehicle_brands[v_id][0]}'
             (tw, th), _ = cv2.getTextSize(vlabel, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
             cv2.rectangle(frame_annotated, (vx1, vy1 - th - 10), (vx1 + tw + 10, vy1), COLOR_VEHICLE_BBOX, -1)
             cv2.putText(frame_annotated, vlabel, (vx1 + 5, vy1 - 5),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.5, COLOR_TEXT, 1)
+
+        # Dibujar logos de marca en naranja
+        for bd in brand_detections:
+            bx1, by1, bx2, by2 = bd["bbox"]
+            cv2.rectangle(frame_annotated, (bx1, by1), (bx2, by2), COLOR_BRAND_BBOX, 2)
 
         for (x1, y1, x2, y2, det_conf) in detections:
             self.stats["plates_detected"] += 1
@@ -332,11 +363,16 @@ class ANPRSystem:
 
             # Asociar placa a vehículo
             vehicle_type = ""
+            brand_name = ""
             if self.vehicle_detector is not None and vehicles:
                 from vehicle_detector import VehicleDetector
                 match = VehicleDetector.associate_plate_to_vehicle((x1, y1, x2, y2), vehicles)
                 if match:
                     vehicle_type = match["type"]
+                    # Obtener marca del mismo vehículo
+                    v_id = id(match)
+                    if v_id in vehicle_brands:
+                        brand_name = vehicle_brands[v_id][0]
 
             if plate_text:
                 self.stats["plates_recognized"] += 1
@@ -344,9 +380,10 @@ class ANPRSystem:
                 # Evitar duplicados recientes
                 if plate_text not in self.plate_history:
                     self.plate_history.append(plate_text)
-                    self._log_plate(plate_text, det_conf, (x1, y1, x2, y2), vehicle_type)
+                    self._log_plate(plate_text, det_conf, (x1, y1, x2, y2), vehicle_type, brand_name)
                     vtype_str = f" [{vehicle_type}]" if vehicle_type else ""
-                    print(f"🚗 Placa detectada: {plate_text} (conf: {det_conf:.2f}){vtype_str}")
+                    brand_str = f" [{brand_name}]" if brand_name else ""
+                    print(f"🚗 Placa detectada: {plate_text} (conf: {det_conf:.2f}){vtype_str}{brand_str}")
 
             results.append({
                 "bbox": (x1, y1, x2, y2),
@@ -354,6 +391,7 @@ class ANPRSystem:
                 "text": plate_text,
                 "ocr_confidence": ocr_conf,
                 "vehicle_type": vehicle_type,
+                "brand": brand_name,
             })
 
             # Anotar frame
@@ -423,7 +461,8 @@ def abrir_fuente_video(source):
 
 def run_realtime(source, detector: PlateDetector, ocr: PlateOCR,
                  show_video: bool = True, save_video: str = None,
-                 log_file: Path = None, vehicle_detector=None):
+                 log_file: Path = None, vehicle_detector=None,
+                 brand_detector=None):
     """
     Ejecuta el sistema ANPR en tiempo real.
 
@@ -434,6 +473,8 @@ def run_realtime(source, detector: PlateDetector, ocr: PlateOCR,
         show_video: Mostrar ventana de video
         save_video: Ruta para guardar video (opcional)
         log_file: Archivo para logging
+        vehicle_detector: Detector de tipo de vehículo (opcional)
+        brand_detector: Detector de marca de vehículo (opcional)
     """
     print("\n" + "=" * 70)
     print("   INICIANDO INFERENCIA EN TIEMPO REAL")
@@ -451,7 +492,8 @@ def run_realtime(source, detector: PlateDetector, ocr: PlateOCR,
     print(f"   • FPS: {fps}")
 
     # Inicializar sistema ANPR
-    anpr = ANPRSystem(detector, ocr, log_file, vehicle_detector=vehicle_detector)
+    anpr = ANPRSystem(detector, ocr, log_file, vehicle_detector=vehicle_detector,
+                      brand_detector=brand_detector)
 
     # Inicializar grabador de video (opcional)
     video_writer = None
@@ -580,6 +622,19 @@ def parse_args():
         "--no-vehicle-detection", action="store_true",
         help="Desactivar la detección de tipo de vehículo"
     )
+    parser.add_argument(
+        "--brand-model", type=str,
+        default=str(Path(__file__).parent.parent / "models" / "marca_detector_yolo11n.pt"),
+        help="Ruta al modelo de detección de marca (default: models/marca_detector_yolo11n.pt)"
+    )
+    parser.add_argument(
+        "--no-brand-detection", action="store_true",
+        help="Desactivar la detección de marca de vehículo"
+    )
+    parser.add_argument(
+        "--colombian-only", action="store_true",
+        help="Solo detectar marcas comunes en Colombia"
+    )
 
     return parser.parse_args()
 
@@ -655,6 +710,22 @@ def main():
         else:
             print(f"⚠️  Modelo de vehículos no encontrado: {veh_model_path}")
 
+    # Inicializar detector de marcas
+    brand_det = None
+    if not args.no_brand_detection:
+        brand_model_path = Path(args.brand_model)
+        if brand_model_path.exists():
+            from brand_detector import BrandDetector
+            brand_det = BrandDetector(
+                model_path=brand_model_path,
+                device=args.device,
+                colombian_only=args.colombian_only
+            )
+            print(f"🏭 Detector de marcas: {brand_model_path}")
+        else:
+            print(f"⚠️  Modelo de marcas no encontrado: {brand_model_path}")
+            print(f"   Ejecuta primero: python scripts/06_entrenar_marca.py")
+
     # Configurar log
     log_file = None
     if args.log:
@@ -670,6 +741,7 @@ def main():
         save_video=args.save_video,
         log_file=log_file,
         vehicle_detector=veh_detector,
+        brand_detector=brand_det,
     )
 
 

@@ -1,6 +1,6 @@
-# 🚗 Sistema ANPR — Detección de Placas + Tipo de Vehículo + OCR
+# 🚗 Sistema ANPR — Detección de Placas + Tipo de Vehículo + Marca + OCR
 
-Sistema de Reconocimiento Automático de Placas Vehiculares (ANPR) con clasificación de tipo de vehículo, diseñado para despliegue en dispositivos edge (Coral Edge TPU).
+Sistema de Reconocimiento Automático de Placas Vehiculares (ANPR) con clasificación de tipo de vehículo y detección de marca, diseñado para despliegue en dispositivos edge (Coral Edge TPU).
 
 ---
 
@@ -30,15 +30,15 @@ El sistema utiliza un pipeline multi-modelo que procesa cada frame de video en s
          │   Tipo de Vehículo   │   por tipo (Automóvil, Bus,
          │   (~2.8 MB INT8)     │   Camión, Motocicleta)
          └──────────┬──────────┘
-                    │ recortes de vehículos
+                    │
          ┌──────────┼──────────────┐
          ▼          ▼              ▼
    ┌───────────┐ ┌───────────┐ ┌──────────────┐
    │ Modelo 2  │ │ Modelo 3  │ │  Modelo 4    │
-   │ Color     │ │ Marca     │ │  Detección   │
-   │ (Fase 2)  │ │ (Fase 3)  │ │  de Placas   │
-   │ ~3 MB     │ │ ~4 MB     │ │  ~2.8 MB     │
-   │ Próximo   │ │ Próximo   │ │  ✅ Listo     │
+   │ Marca     │ │ Color     │ │  Detección   │
+   │ 30 marcas │ │ (Fase 2)  │ │  de Placas   │
+   │ ~2.8 MB   │ │ ~3 MB     │ │  ~2.8 MB     │
+   │ ✅ Listo   │ │ Próximo   │ │  ✅ Listo     │
    └───────────┘ └───────────┘ └──────┬───────┘
                                       │
                                       ▼
@@ -56,9 +56,9 @@ El sistema utiliza un pipeline multi-modelo que procesa cada frame de video en s
 | **Detección de Placas** | Localiza placas en el frame | ✅ Listo | ~2.8 MB |
 | **OCR** | Lee caracteres alfanuméricos de la placa | ✅ Listo | — |
 | **Color de Vehículo** | 15 colores: Blanco, Negro, Rojo, Azul, etc. | ✅ Listo | ~4 MB |
-| **Marca** | Chevrolet, Renault, Mazda, etc. | 🔜 Fase 3 | ~4 MB |
+| **Marca** | 30 marcas (Chevrolet, Renault, Toyota, BMW...) | ✅ Listo | ~2.8 MB |
 
-**Huella total en Coral Edge TPU:** ~12-13 MB (los modelos se ejecutan secuencialmente, ~30-40ms por frame → **25+ FPS en tiempo real**).
+**Huella total en Coral Edge TPU:** ~11-12 MB (los modelos se ejecutan secuencialmente, ~30-40ms por frame → **25+ FPS en tiempo real**).
 
 > **Detalle del Modelo de Color:** EfficientNetB0 con Transfer Learning desde ImageNet. Entrenado con ~10,500 imágenes del dataset VCoR (15 clases). Estrategia de 2 fases: classifier-head-only (30 epochs) + fine-tuning completo (20 epochs).
 
@@ -77,12 +77,16 @@ anpr_project/
 │   ├── 03_exportar_tflite.py
 │   ├── 04_inferencia_tiempo_real.py
 │   ├── 05_entrenar_color.py         # Entrenamiento clasificador de color
+│   ├── 05_preparar_dataset_marcas.py  # Unificación de datasets de marcas
 │   ├── 06_exportar_color_tflite.py  # Exportación color a TFLite INT8
+│   ├── 06_entrenar_marca.py           # Entrenamiento modelo de marcas
 │   ├── vehicle_detector.py          # Módulo de detección de tipo de vehículo
 │   ├── color_classifier.py          # Módulo de clasificación de color
+│   ├── brand_detector.py              # Módulo de detección de marca (30 marcas)
 │   └── yolo11n.pt                   # Modelo de detección de vehículos (~5 MB)
 ├── models/                  # Modelos entrenados
 │   ├── placa_detector_yolo11n.pt       # Detección de placas - PyTorch (5.2 MB)
+│   ├── marca_detector_yolo11n.pt       # Detección de marcas - PyTorch (~5 MB)
 │   ├── placa_detector_yolo11n.onnx     # Detección de placas - ONNX (10 MB)
 │   ├── color_classifier_efficientnet.h5  # Color - Keras (~15 MB)
 │   ├── tflite_exports/
@@ -92,7 +96,9 @@ anpr_project/
 │       ├── placa_detector_yolo11n_float32.tflite    # 10 MB
 │       ├── placa_detector_yolo11n_float16.tflite    # 5.1 MB
 │       └── placa_detector_yolo11n_dynamic_range_quant.tflite  # 2.8 MB ⭐
-├── dataset_combinado/       # Dataset unificado
+├── Dataset-marcas/          # Datasets de marcas (3 datasets)
+├── dataset_combinado/       # Dataset unificado (placas)
+├── dataset_marcas_combinado/ # Dataset unificado (marcas - 30 clases)
 └── output/                  # Resultados de entrenamiento
 ```
 
@@ -172,7 +178,7 @@ Beige, Negro, Azul, Café, Dorado, Verde, Gris, Naranja, Rosa, Morado, Rojo, Pla
 | 1 | ❄️ Frozen | ✅ Entrenable | 1e-3 | 30 |
 | 2 | 🔥 Unfrozen | ✅ Entrenable | 1e-5 | 20 |
 
-**Fase 1** preserva features de ImageNet y solo entrena el clasificador final.  
+**Fase 1** preserva features de ImageNet y solo entrena el clasificador final.
 **Fase 2** ajusta toda la red con learning rate muy bajo para ganar 2-5% de precisión.
 
 ```bash
@@ -183,16 +189,38 @@ python scripts/05_entrenar_color.py --data datasets/vehicle_colors
 python scripts/06_exportar_color_tflite.py
 ```
 
+### [05_preparar_dataset_marcas.py](scripts/05_preparar_dataset_marcas.py)
+
+Combina 3 datasets de marcas vehiculares (Dataset1: 9 marcas, Dataset2: 20 marcas, Dataset3: 23 marcas) en un dataset unificado de **30 clases**. Remapea class IDs entre datasets y excluye la clase "Plate" de Dataset3.
+
+**Resultado:** `dataset_marcas_combinado/` con ~23,000 imágenes y 30 marcas unificadas.
+
+### [06_entrenar_marca.py](scripts/06_entrenar_marca.py)
+
+Entrena YOLOv11n para detección de logos de marcas vehiculares (30 clases). Augmentación reducida porque Dataset2 ya incluye rotación/shear/blur. Flip horizontal desactivado (logos no son simétricos).
+
+**Resultado:** `models/marca_detector_yolo11n.pt`
+
+### [brand_detector.py](scripts/brand_detector.py)
+
+Módulo de detección de marca vehicular. Detecta logos de 30 marcas y las asocia al vehículo correspondiente usando posición espacial. Incluye filtro `--colombian-only` para las 17 marcas relevantes en Colombia.
+
 ### [04_inferencia_tiempo_real.py](scripts/04_inferencia_tiempo_real.py)
 
-Ejecuta el pipeline completo (detección de vehículos + detección de placas + OCR) en video/webcam.
+Ejecuta el pipeline completo (detección de vehículos + detección de placas + detección de marcas + OCR) en video/webcam.
 
 ```bash
-# Con detección de tipo de vehículo (activado por defecto)
+# Pipeline completo (vehículos + placas + marcas + OCR)
 python scripts/04_inferencia_tiempo_real.py --source 0
 
 # Sin detección de vehículos
 python scripts/04_inferencia_tiempo_real.py --source 0 --no-vehicle-detection
+
+# Sin detección de marcas
+python scripts/04_inferencia_tiempo_real.py --source 0 --no-brand-detection
+
+# Solo marcas colombianas
+python scripts/04_inferencia_tiempo_real.py --source 0 --colombian-only
 ```
 
 ---
@@ -259,8 +287,13 @@ El sistema detecta automáticamente el tipo de cada vehículo en el frame y lo a
 
 1. **Detección de vehículos** — El modelo `yolo11n.pt` analiza el frame completo y localiza cada vehículo, clasificándolo por tipo (Automóvil, Motocicleta, Bus, Camión)
 2. **Detección de placas** — El modelo `placa_detector_yolo11n.pt` localiza las placas vehiculares
-3. **Asociación placa → vehículo** — El sistema vincula cada placa con el vehículo que la contiene usando la posición espacial de los bounding boxes
-4. **OCR** — Lee los caracteres de cada placa detectada
+3. **Detección de marcas** — El modelo `marca_detector_yolo11n.pt` detecta logos de 30 marcas vehiculares
+4. **Asociación placa → vehículo → marca** — El sistema vincula cada placa con el vehículo y marca correspondientes usando la posición espacial de los bounding boxes
+5. **OCR** — Lee los caracteres de cada placa detectada
+
+### Marcas detectadas (30 clases)
+
+Acura, Audi, BMW, Chevrolet, Citroen, Dacia, Fiat, Ford, Honda, Hyundai, Infiniti, KIA, Lamborghini, Lexus, Mazda, MercedesBenz, Mitsubishi, Nissan, Opel, Perodua, Peugeot, Porsche, Proton, Renault, Seat, Suzuki, Tesla, Toyota, Volkswagen, Volvo
 
 ### Resultado por vehículo
 
@@ -273,7 +306,7 @@ Para cada vehículo detectado, el sistema entrega:
 │  📊 Confianza: 98.5%        │
 │  🚗 Tipo: Automóvil         │
 │  🎨 Color: Blanco (92%)     │
-│  🏭 Marca: Próximamente     │
+│  🏭 Marca: Toyota           │
 └─────────────────────────────┘
 ```
 
@@ -284,8 +317,9 @@ Para cada vehículo detectado, el sistema entrega:
 | Detección de placas | `placa_detector_yolo11n_dynamic_range_quant.tflite` | ~2.8 MB |
 | Detección de vehículos | `yolo11n_coco_vehicle_int8.tflite` | ~2.9 MB |
 | Clasificador de color | `color_classifier_int8.tflite` | ~4 MB |
+| Detección de marcas | `marca_detector_yolo11n_int8.tflite` | ~2.8 MB |
 
-Ambos modelos se ejecutan secuencialmente en el Edge TPU con latencia mínima.
+Los tres modelos se ejecutan secuencialmente en el Edge TPU con latencia mínima.
 
 ---
 
@@ -295,26 +329,27 @@ Ambos modelos se ejecutan secuencialmente en el Edge TPU con latencia mínima.
 # Activar entorno
 source anpr_env/bin/activate
 
-# Preparar dataset
+# ─── Pipeline de placas ───
 python scripts/01_preparar_dataset.py
-
-# Entrenar
 python scripts/02_entrenar_modelo.py --epochs 200
 
-# Exportar para Edge
-python scripts/03_exportar_tflite.py --formato int8
+# ─── Pipeline de marcas (Fase 3) ───
+python scripts/05_preparar_dataset_marcas.py
+python scripts/06_entrenar_marca.py --epochs 150
 
-# Entrenar clasificador de color
+# ─── Pipeline de color ───
 python scripts/05_entrenar_color.py
-
-# Exportar color a TFLite
 python scripts/06_exportar_color_tflite.py
 
-# Demo Web (Streamlit)
+# ─── Exportar para Edge ───
+python scripts/03_exportar_tflite.py --formato int8 --brand
+
+# ─── Demo Web (Streamlit) ───
 streamlit run app_demo.py
 
-# Inferencia Webcam
+# ─── Inferencia Webcam ───
 python scripts/04_inferencia_tiempo_real.py --source 0
+python scripts/04_inferencia_tiempo_real.py --source 0 --colombian-only
 ```
 
 ---
