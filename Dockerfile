@@ -20,6 +20,7 @@ COPY app_cloud.py .
 COPY scripts/vehicle_detector.py scripts/vehicle_detector.py
 COPY scripts/color_classifier.py scripts/color_classifier.py
 COPY scripts/yolo11n.pt scripts/yolo11n.pt
+# Models: YOLO plate detector + TFLite color classifier
 COPY models/ models/
 COPY samples/ samples/
 COPY .streamlit/ .streamlit/

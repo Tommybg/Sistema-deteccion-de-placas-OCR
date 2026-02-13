@@ -92,8 +92,23 @@ def load_detector():
 def load_color_classifier():
     """Carga el modelo de clasificación de color de vehículo (TFLite para deploy)."""
     from scripts.color_classifier import DEFAULT_TFLITE_PATH
+    print(f"[Color Classifier] Looking for TFLite model at: {DEFAULT_TFLITE_PATH}")
+    print(f"[Color Classifier] File exists: {DEFAULT_TFLITE_PATH.exists()}")
     if DEFAULT_TFLITE_PATH.exists():
-        return ColorClassifier(model_path=DEFAULT_TFLITE_PATH, use_tflite=True)
+        try:
+            clf = ColorClassifier(model_path=DEFAULT_TFLITE_PATH, use_tflite=True)
+            print("[Color Classifier] ✅ Loaded successfully")
+            return clf
+        except Exception as e:
+            print(f"[Color Classifier] ❌ Failed to load: {e}")
+            return None
+    # List what's actually in models/ for debugging
+    from pathlib import Path
+    models_dir = Path("/app/models")
+    if models_dir.exists():
+        print(f"[Color Classifier] Contents of {models_dir}: {list(models_dir.rglob('*'))}")
+    else:
+        print(f"[Color Classifier] ❌ {models_dir} does not exist")
     return None
 
 
