@@ -38,6 +38,5 @@ setup.bat
 
 # Modelos innecesarios para deploy
 models/exports/
-models/tflite_exports/
 models/placa_detector_yolo11n_saved_model/
 models/*.onnx
