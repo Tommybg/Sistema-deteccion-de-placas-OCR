@@ -101,13 +101,26 @@ def load_color_classifier():
             print("[Color Classifier] Loaded successfully")
             return clf
         except Exception as e:
-            print(f"[Color Classifier] Failed to load: {e}")
+            print(f"[Color Classifier] Failed to load TFLite: {e}")
+            # Fallback: try loading the .h5 Keras model if available
+            from scripts.color_classifier import DEFAULT_MODEL_PATH
+            if DEFAULT_MODEL_PATH.exists():
+                try:
+                    clf = ColorClassifier(model_path=DEFAULT_MODEL_PATH, use_tflite=False)
+                    print("[Color Classifier] Loaded .h5 fallback successfully")
+                    return clf
+                except Exception as e2:
+                    print(f"[Color Classifier] .h5 fallback also failed: {e2}")
+            st.sidebar.warning(f"⚠️ Color classifier no disponible: {e}")
             return None
+    # File not found — show visible warning
+    st.sidebar.warning(f"⚠️ Modelo de color no encontrado en: {DEFAULT_TFLITE_PATH}")
     # List what's actually in models/ for debugging
-    from pathlib import Path
     models_dir = Path("/app/models")
     if models_dir.exists():
-        print(f"[Color Classifier] Contents of {models_dir}: {list(models_dir.rglob('*'))}")
+        contents = list(models_dir.rglob('*'))
+        print(f"[Color Classifier] Contents of {models_dir}: {contents}")
+        st.sidebar.caption(f"models/ contiene: {[str(c.name) for c in contents]}")
     else:
         print(f"[Color Classifier] {models_dir} does not exist")
     return None
