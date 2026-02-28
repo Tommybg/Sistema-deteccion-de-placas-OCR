@@ -31,11 +31,14 @@ class ColorClassifier:
         self.use_tflite = use_tflite
 
         if use_tflite:
-            # Try lightweight tflite-runtime first, fall back to full TF
+            # Try ai-edge-litert (Google's successor), then tflite-runtime, then full TF
             try:
-                from tflite_runtime.interpreter import Interpreter
+                from ai_edge_litert.interpreter import Interpreter
             except ImportError:
-                from tensorflow.lite import Interpreter
+                try:
+                    from tflite_runtime.interpreter import Interpreter
+                except ImportError:
+                    from tensorflow.lite import Interpreter
             model_path = str(model_path or DEFAULT_TFLITE_PATH)
             self.interpreter = Interpreter(model_path=model_path)
             self.interpreter.allocate_tensors()

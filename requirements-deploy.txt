@@ -20,7 +20,7 @@ pillow>=9.0.0
 streamlit>=1.30.0
 
 # Color classifier (lightweight TFLite inference)
-tflite-runtime>=2.14.0
+ai-edge-litert>=1.0.1
 
 # Utilidades
 pyyaml>=6.0
