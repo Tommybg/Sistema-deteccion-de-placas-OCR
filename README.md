@@ -36,9 +36,9 @@ El sistema utiliza un pipeline multi-modelo que procesa cada frame de video en s
    ┌───────────┐ ┌───────────┐ ┌──────────────┐
    │ Modelo 2  │ │ Modelo 3  │ │  Modelo 4    │
    │ Marca     │ │ Color     │ │  Detección   │
-   │ 30 marcas │ │ (Fase 2)  │ │  de Placas   │
-   │ ~2.8 MB   │ │ ~3 MB     │ │  ~2.8 MB     │
-   │ ✅ Listo   │ │ Próximo   │ │  ✅ Listo     │
+   │ 30 marcas │ │ 15 clases │ │  de Placas   │
+   │ ~2.8 MB   │ │ ~4 MB     │ │  ~2.8 MB     │
+   │ ✅ Listo   │ │ ✅ Listo   │ │  ✅ Listo     │
    └───────────┘ └───────────┘ └──────┬───────┘
                                       │
                                       ▼
