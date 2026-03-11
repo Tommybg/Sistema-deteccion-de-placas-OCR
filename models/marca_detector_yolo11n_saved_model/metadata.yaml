@@ -1,0 +1,52 @@
+description: Ultralytics YOLO11n model trained on C:\Users\user\OneDrive - Universidad
+  de la Sabana\AI_LAB\Sistema-deteccion-de-placas-OCR\dataset_marcas_combinado\data.yaml
+author: Ultralytics
+date: '2026-03-06T08:18:00.573576'
+version: 8.4.9
+license: AGPL-3.0 License (https://ultralytics.com/license)
+docs: https://docs.ultralytics.com
+stride: 32
+task: detect
+batch: 1
+imgsz:
+- 640
+- 640
+names:
+  0: Acura
+  1: Audi
+  2: BMW
+  3: Chevrolet
+  4: Citroen
+  5: Dacia
+  6: Fiat
+  7: Ford
+  8: Honda
+  9: Hyundai
+  10: Infiniti
+  11: KIA
+  12: Lamborghini
+  13: Lexus
+  14: Mazda
+  15: MercedesBenz
+  16: Mitsubishi
+  17: Nissan
+  18: Opel
+  19: Perodua
+  20: Peugeot
+  21: Porsche
+  22: Proton
+  23: Renault
+  24: Seat
+  25: Suzuki
+  26: Tesla
+  27: Toyota
+  28: Volkswagen
+  29: Volvo
+args:
+  batch: 1
+  fraction: 1.0
+  half: false
+  int8: true
+  nms: false
+channels: 3
+end2end: false

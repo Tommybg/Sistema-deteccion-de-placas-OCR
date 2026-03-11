@@ -161,23 +161,24 @@ class PlateOCR:
     Reconocimiento de caracteres usando fast-plate-ocr.
     """
 
-    def __init__(self, model_name: str = "argentinian-plates-cnn-model"):
+    def __init__(self, model_name: str = "cct-xs-v1-global-model"):
         """
-        Inicializa el OCR.
+        Inicializa el OCR usando fast-plate-ocr (LicensePlateRecognizer).
 
         Args:
             model_name: Nombre del modelo pre-entrenado
+                        Opciones: "cct-xs-v1-global-model", "cct-s-v1-global-model"
         """
+        self.model_name = model_name
         try:
-            from fast_plate_ocr import ONNXPlateRecognizer
-
-            self.recognizer = ONNXPlateRecognizer(model_name)
+            from fast_plate_ocr import LicensePlateRecognizer
+            self.recognizer = LicensePlateRecognizer(model_name)
             print(f"✅ OCR inicializado: {model_name}")
         except ImportError:
             print("⚠️  fast-plate-ocr no instalado. Instalando...")
-            os.system("pip install fast-plate-ocr")
-            from fast_plate_ocr import ONNXPlateRecognizer
-            self.recognizer = ONNXPlateRecognizer(model_name)
+            os.system("pip install 'fast-plate-ocr[onnx]'")
+            from fast_plate_ocr import LicensePlateRecognizer
+            self.recognizer = LicensePlateRecognizer(model_name)
         except Exception as e:
             print(f"❌ Error inicializando OCR: {e}")
             self.recognizer = None
@@ -611,7 +612,7 @@ def parse_args():
         help="Guardar log de placas detectadas"
     )
     parser.add_argument(
-        "--ocr-model", type=str, default="argentinian-plates-cnn-model",
+        "--ocr-model", type=str, default="cct-xs-v1-global-model",
         help="Modelo OCR a usar (default: argentinian-plates-cnn-model)"
     )
     parser.add_argument(
