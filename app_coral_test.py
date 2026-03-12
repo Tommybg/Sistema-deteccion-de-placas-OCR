@@ -19,6 +19,7 @@ Pipeline híbrido: 4 modelos INT8 TFLite vía CoralInterpreter + OCR en CPU:
 """
 
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -166,6 +167,11 @@ MODELS_CONFIG = {
     },
 }
 
+TEST_DIRS = {
+    "dataset_combinado/test": PROJECT_DIR / "dataset_combinado" / "test" / "images",
+    "samples": PROJECT_DIR / "samples",
+}
+
 
 # ─── Cache de modelos ─────────────────────────────────────────────────────────
 
@@ -201,6 +207,20 @@ def load_ocr():
         return None
 
 
+def read_plate_text(ocr, plate_bgr):
+    """Run OCR on a BGR plate crop. Converts to RGB numpy array (same as 04_inferencia)."""
+    if ocr is None:
+        return "", 0.0
+    if len(plate_bgr.shape) == 3:
+        plate_rgb = cv2.cvtColor(plate_bgr, cv2.COLOR_BGR2RGB)
+    else:
+        plate_rgb = plate_bgr
+    results, confidences = ocr.run(plate_rgb, return_confidence=True)
+    text = results[0].strip() if results else ""
+    conf = float(confidences.mean()) if confidences.size > 0 else 0.0
+    return text, conf
+
+
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
 def run_model_timed(interp_cfg, image_rgb, target_size=None, hint="default"):
@@ -229,7 +249,7 @@ def decode_yolo_top(outputs, conf_thresh=0.25):
     return int(class_ids[best]), float(confs[best])
 
 
-def decode_yolo_best_bbox(outputs, conf_thresh=0.25, img_shape=(640, 640)):
+def decode_yolo_best_bbox(outputs, conf_thresh=0.25, img_shape=(640, 640), model_input_size=640):
     """Extract best YOLO bbox in pixel coords. Returns ((x1,y1,x2,y2), conf)."""
     raw = outputs[0]
     if raw.ndim == 3:
@@ -246,12 +266,21 @@ def decode_yolo_best_bbox(outputs, conf_thresh=0.25, img_shape=(640, 640)):
         return None, 0.0
     cx, cy, w, h = raw[best, :4]
     img_h, img_w = img_shape
-    # YOLO outputs are in 640×640 space, scale to original image
-    sx, sy = img_w / 640.0, img_h / 640.0
-    x1 = int((cx - w / 2) * sx)
-    y1 = int((cy - h / 2) * sy)
-    x2 = int((cx + w / 2) * sx)
-    y2 = int((cy + h / 2) * sy)
+    # Detect if coords are normalized (0-1) or in pixel space (0-640)
+    coords_max = float(max(abs(cx), abs(cy), abs(w), abs(h)))
+    if coords_max <= 1.5:
+        # Normalized 0-1 coords (INT8 TFLite export)
+        x1 = int((cx - w / 2) * img_w)
+        y1 = int((cy - h / 2) * img_h)
+        x2 = int((cx + w / 2) * img_w)
+        y2 = int((cy + h / 2) * img_h)
+    else:
+        # Pixel coords in model_input_size space (float YOLO)
+        sx, sy = img_w / float(model_input_size), img_h / float(model_input_size)
+        x1 = int((cx - w / 2) * sx)
+        y1 = int((cy - h / 2) * sy)
+        x2 = int((cx + w / 2) * sx)
+        y2 = int((cy + h / 2) * sy)
     x1, y1 = max(0, x1), max(0, y1)
     x2, y2 = min(img_w, x2), min(img_h, y2)
     return (x1, y1, x2, y2), conf
@@ -267,6 +296,50 @@ def result_card(label, value, sub=None, emoji=""):
         f"</div>",
         unsafe_allow_html=True
     )
+
+
+def image_source_selector(key_prefix, show_camera=True):
+    """Shared widget for selecting image source. Returns (frame_rgb, frame_bgr)."""
+    options = ["Upload", "Camera", "Test dataset"] if show_camera else ["Upload", "Test dataset"]
+    input_mode = st.radio(
+        "Fuente de imagen:", options,
+        horizontal=True, key=f"{key_prefix}_input_mode",
+    )
+
+    frame_rgb = None
+    frame_bgr = None
+    if input_mode == "Upload":
+        uploaded = st.file_uploader(
+            "📁 Sube una imagen de vehículo con placa",
+            type=["jpg", "jpeg", "png"], key=f"{key_prefix}_upload",
+        )
+        if uploaded:
+            file_bytes = np.asarray(bytearray(uploaded.read()), dtype=np.uint8)
+            frame_bgr = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
+            frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
+    elif input_mode == "Camera":
+        cam_img = st.camera_input("📷 Toma una foto", key=f"{key_prefix}_camera")
+        if cam_img:
+            file_bytes = np.asarray(bytearray(cam_img.read()), dtype=np.uint8)
+            frame_bgr = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
+            frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
+    else:  # Test dataset
+        ds_choice = st.selectbox("Carpeta:", list(TEST_DIRS.keys()), key=f"{key_prefix}_ds")
+        ds_path = TEST_DIRS[ds_choice]
+        if ds_path.exists():
+            imgs = sorted([f.name for f in ds_path.iterdir() if f.suffix.lower() in (".jpg", ".jpeg", ".png")])
+            if imgs:
+                sel_img = st.selectbox(f"Imagen ({len(imgs)} disponibles):", imgs, key=f"{key_prefix}_img_sel")
+                img_path = ds_path / sel_img
+                frame_bgr = cv2.imread(str(img_path))
+                if frame_bgr is not None:
+                    frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
+            else:
+                st.warning("No hay imágenes en esta carpeta.")
+        else:
+            st.warning(f"Carpeta `{ds_path}` no encontrada.")
+
+    return frame_rgb, frame_bgr
 
 
 # ─── Sidebar ──────────────────────────────────────────────────────────────────
@@ -347,44 +420,7 @@ with tab_pipeline:
 
     st.divider()
 
-    # ── Input source selector ────────────────────────────────────────────
-    TEST_DIRS = {
-        "dataset_combinado/test": PROJECT_DIR / "dataset_combinado" / "test" / "images",
-        "samples": PROJECT_DIR / "samples",
-    }
-    input_mode = st.radio(
-        "Fuente de imagen:", ["Upload", "Camera", "Test dataset"],
-        horizontal=True, key="pipe_input_mode",
-    )
-
-    frame_rgb = None
-    if input_mode == "Upload":
-        uploaded = st.file_uploader("📁 Sube una imagen de vehículo con placa", type=["jpg", "jpeg", "png"])
-        if uploaded:
-            file_bytes = np.asarray(bytearray(uploaded.read()), dtype=np.uint8)
-            frame_bgr = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
-            frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
-    elif input_mode == "Camera":
-        cam_img = st.camera_input("📷 Toma una foto")
-        if cam_img:
-            file_bytes = np.asarray(bytearray(cam_img.read()), dtype=np.uint8)
-            frame_bgr = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
-            frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
-    else:  # Test dataset
-        ds_choice = st.selectbox("Carpeta:", list(TEST_DIRS.keys()), key="pipe_ds")
-        ds_path = TEST_DIRS[ds_choice]
-        if ds_path.exists():
-            imgs = sorted([f.name for f in ds_path.iterdir() if f.suffix.lower() in (".jpg", ".jpeg", ".png")])
-            if imgs:
-                sel_img = st.selectbox(f"Imagen ({len(imgs)} disponibles):", imgs, key="pipe_img_sel")
-                img_path = ds_path / sel_img
-                frame_bgr = cv2.imread(str(img_path))
-                if frame_bgr is not None:
-                    frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
-            else:
-                st.warning("No hay imágenes en esta carpeta.")
-        else:
-            st.warning(f"Carpeta `{ds_path}` no encontrada.")
+    frame_rgb, frame_bgr = image_source_selector("pipe", show_camera=True)
 
     if frame_rgb is not None:
         col_img, col_results = st.columns([1, 1])
@@ -449,7 +485,8 @@ with tab_pipeline:
                     outputs, lat, est, _ = run_model_timed(plate_data, frame_rgb, hint="yolo")
                     latencias["📍 Placa"] = (lat, est)
                     plate_bbox, plate_conf = decode_yolo_best_bbox(
-                        outputs, conf_thresh=0.3, img_shape=frame_rgb.shape[:2]
+                        outputs, conf_thresh=0.3, img_shape=frame_rgb.shape[:2],
+                        model_input_size=plate_data["interp"].input_shape[1],
                     )
                     detections["plate"] = {"bbox": plate_bbox, "conf": plate_conf}
 
@@ -467,17 +504,19 @@ with tab_pipeline:
                     else:
                         plate_crop = frame_bgr[int(h * 0.55):, int(w * 0.15):int(w * 0.85)]
                         fallback = True
-                    # Pass raw BGR crop to OCR — same as app_demo.py
                     t0 = time.perf_counter()
                     try:
-                        res = ocr_obj.run(plate_crop)
-                        ocr_text = res[0].strip() if isinstance(res, (list, tuple)) else str(res).strip()
-                    except Exception:
-                        ocr_text = "—"
+                        ocr_text, ocr_conf = read_plate_text(ocr_obj, plate_crop)
+                    except Exception as e:
+                        ocr_text, ocr_conf = "—", 0.0
+                        st.warning(f"OCR error: {e}")
                     ocr_lat = (time.perf_counter() - t0) * 1000
                     latencias["🔤 OCR"] = (ocr_lat, ocr_lat)  # CPU-only, no TPU speedup
                     plate_crop_rgb = cv2.cvtColor(plate_crop, cv2.COLOR_BGR2RGB)
-                    detections["ocr"] = {"text": ocr_text, "fallback": fallback, "crop": plate_crop_rgb}
+                    detections["ocr"] = {
+                        "text": ocr_text, "conf": ocr_conf,
+                        "fallback": fallback, "crop": plate_crop_rgb,
+                    }
 
             # ── Mostrar resultados ────────────────────────────────────────────
             with col_results:
@@ -521,11 +560,18 @@ with tab_pipeline:
                 ocr_det = detections.get("ocr", {})
                 if ocr_det:
                     txt = ocr_det.get("text", "—")
-                    fb_note = " (recorte fallback)" if ocr_det.get("fallback") else " (bbox detectado)"
-                    result_card("Texto de placa (OCR)", txt if txt else "—", fb_note, "🔤")
+                    ocr_c = ocr_det.get("conf", 0)
+                    fb_note = "recorte fallback" if ocr_det.get("fallback") else "bbox detectado"
+                    result_card(
+                        "Texto de placa (OCR)",
+                        txt if txt else "—",
+                        f"Confianza OCR: {ocr_c:.0%} | {fb_note}",
+                        "🔤",
+                    )
                     if ocr_det.get("crop") is not None:
                         with st.expander("Ver crop enviado al OCR"):
-                            st.image(ocr_det["crop"], caption="Crop de placa", width=256)
+                            crop = ocr_det["crop"]
+                            st.image(crop, caption=f"Crop de placa ({crop.shape[1]}x{crop.shape[0]}px)", width=256)
 
                 # ── Latencias ─────────────────────────────────────────────────
                 st.markdown("---")
@@ -595,34 +641,7 @@ with tab_individual:
     cfg_sel = MODELS_CONFIG[model_sel]
     st.info(f"ℹ️ **{cfg_sel['label']}** — {cfg_sel['desc']}")
 
-    # ── Input source selector ────────────────────────────────────────────
-    ind_input_mode = st.radio(
-        "Fuente de imagen:", ["Upload", "Test dataset"],
-        horizontal=True, key="ind_input_mode",
-    )
-
-    frame2_rgb = None
-    if ind_input_mode == "Upload":
-        uploaded2 = st.file_uploader("📁 Imagen de prueba", type=["jpg", "jpeg", "png"], key="ind_upload")
-        if uploaded2:
-            file_bytes2 = np.asarray(bytearray(uploaded2.read()), dtype=np.uint8)
-            frame2_bgr = cv2.imdecode(file_bytes2, cv2.IMREAD_COLOR)
-            frame2_rgb = cv2.cvtColor(frame2_bgr, cv2.COLOR_BGR2RGB)
-    else:  # Test dataset
-        ds_choice2 = st.selectbox("Carpeta:", list(TEST_DIRS.keys()), key="ind_ds")
-        ds_path2 = TEST_DIRS[ds_choice2]
-        if ds_path2.exists():
-            imgs2 = sorted([f.name for f in ds_path2.iterdir() if f.suffix.lower() in (".jpg", ".jpeg", ".png")])
-            if imgs2:
-                sel_img2 = st.selectbox(f"Imagen ({len(imgs2)} disponibles):", imgs2, key="ind_img_sel")
-                img_path2 = ds_path2 / sel_img2
-                frame2_bgr = cv2.imread(str(img_path2))
-                if frame2_bgr is not None:
-                    frame2_rgb = cv2.cvtColor(frame2_bgr, cv2.COLOR_BGR2RGB)
-            else:
-                st.warning("No hay imágenes en esta carpeta.")
-        else:
-            st.warning(f"Carpeta `{ds_path2}` no encontrada.")
+    frame2_rgb, frame2_bgr = image_source_selector("ind", show_camera=False)
 
     if frame2_rgb is not None:
         st.image(frame2_rgb, caption="Imagen seleccionada", use_container_width=True)
@@ -644,7 +663,10 @@ with tab_individual:
                 c3.metric("Speedup estimado", f"~{cfg_sel['scale']}×")
 
                 st.divider()
-                bbox, conf = decode_yolo_best_bbox(outputs, conf_thresh=0.2, img_shape=frame2_rgb.shape[:2])
+                bbox, conf = decode_yolo_best_bbox(
+                    outputs, conf_thresh=0.2, img_shape=frame2_rgb.shape[:2],
+                    model_input_size=interp_data["interp"].input_shape[1],
+                )
                 if bbox:
                     x1, y1, x2, y2 = bbox
                     st.success(f"**Placa detectada** — bbox: ({x1},{y1})→({x2},{y2}) — confianza: {conf:.1%}")
@@ -674,7 +696,10 @@ with tab_individual:
                     plate_crop_bgr = None
                     if plate_data:
                         p_out, _, _, _ = run_model_timed(plate_data, frame2_rgb, hint="yolo")
-                        bbox, pconf = decode_yolo_best_bbox(p_out, conf_thresh=0.3, img_shape=frame2_rgb.shape[:2])
+                        bbox, pconf = decode_yolo_best_bbox(
+                            p_out, conf_thresh=0.3, img_shape=frame2_rgb.shape[:2],
+                            model_input_size=plate_data["interp"].input_shape[1],
+                        )
                         if bbox:
                             x1, y1, x2, y2 = bbox
                             crop = frame2_bgr[y1:y2, x1:x2]
@@ -687,21 +712,24 @@ with tab_individual:
                         plate_crop_bgr = frame2_bgr[int(h * 0.55):, int(w * 0.15):int(w * 0.85)]
                         st.warning("⚠️ Detector de placa no disponible — usando recorte fallback")
 
-                    # Pass raw BGR crop — the OCR library handles resize/preprocess
                     t0 = time.perf_counter()
                     try:
-                        res = ocr2.run(plate_crop_bgr)
-                        text = res[0].strip() if isinstance(res, (list, tuple)) else str(res).strip()
+                        text, ocr_conf = read_plate_text(ocr2, plate_crop_bgr)
                     except Exception as e:
-                        text = f"Error: {e}"
+                        text, ocr_conf = f"Error: {e}", 0.0
                     lat = (time.perf_counter() - t0) * 1000
 
                     st.success(f"**Texto de placa:** `{text or '(vacío)'}`")
-                    c1, c2 = st.columns(2)
+                    c1, c2, c3 = st.columns(3)
                     c1.metric("Latencia CPU (ONNX)", f"{lat:.1f} ms")
-                    c2.metric("Mode", "CPU only", help="CCT Transformer no soportado por Edge TPU")
+                    c2.metric("Confianza OCR", f"{ocr_conf:.0%}")
+                    c3.metric("Mode", "CPU only", help="CCT Transformer no soportado por Edge TPU")
                     plate_crop_rgb = cv2.cvtColor(plate_crop_bgr, cv2.COLOR_BGR2RGB)
-                    st.image(plate_crop_rgb, caption="Crop enviado al OCR", width=256)
+                    st.image(
+                        plate_crop_rgb,
+                        caption=f"Crop enviado al OCR ({plate_crop_rgb.shape[1]}x{plate_crop_rgb.shape[0]}px)",
+                        width=256,
+                    )
 
             # ── TFLite models (vehicle, color, brand) ────────────────────────
             else:
@@ -782,7 +810,7 @@ with tab_benchmark:
         results = {}
         progress = st.progress(0, text="Iniciando...")
         available = [(k, v) for k, v in interpreters.items() if v is not None]
-        total_steps = len(available)
+        total_steps = len(available) + 1  # +1 for OCR step
 
         for i, (key, interp_data) in enumerate(available):
             cfg = MODELS_CONFIG[key]
@@ -807,7 +835,7 @@ with tab_benchmark:
             }
 
         # OCR benchmark (ONNX CPU)
-        progress.progress(len(available) / max(total_steps + 1, 1), text="Benchmarking OCR (ONNX)...")
+        progress.progress(len(available) / max(total_steps, 1), text="Benchmarking OCR (ONNX)...")
         ocr3 = load_ocr()
         ocr_mean = None
         if ocr3:
@@ -816,9 +844,9 @@ with tab_benchmark:
             for _ in range(n_runs):
                 t0 = time.perf_counter()
                 try:
-                    ocr3.run(dummy_plate)
+                    read_plate_text(ocr3, dummy_plate)
                 except Exception:
-                    pass
+                    pass  # Dummy image, errors expected
                 lats_ocr.append((time.perf_counter() - t0) * 1000)
             ocr_mean = float(np.mean(lats_ocr))
 
