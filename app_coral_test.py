@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 app_coral_test.py — Streamlit app para testear modelos cuantizados INT8 / Edge TPU.
 
@@ -109,7 +108,7 @@ COLOR_ES = {
 COLOR_EMOJI = {
     "black": "⚫", "white": "⚪", "grey": "🩶", "silver": "🩶",
     "red": "🔴", "blue": "🔵", "green": "🟢", "yellow": "🟡",
-    "orange": "🟠", "brown": "🟤", "gold": "🥇",
+    "orange": "🟠", "brown": "🟤", "gold": "🟡",
 }
 
 # Brand detector — 30 marcas (mismo orden que en BRAND_CLASSES de brand_detector.py)
@@ -125,43 +124,43 @@ BRAND_CLASSES = {
 
 # Vehicle detector — clases COCO de vehículos (IDs que devuelve yolo11n entrenado con COCO)
 VEHICLE_CLASSES = {
-    2: "Auto 🚗", 3: "Moto 🏍️", 5: "Bus 🚌",
-    7: "Camión 🚛", 1: "Bicicleta 🚲",
+    2: "Auto", 3: "Moto", 5: "Bus",
+    7: "Camión", 1: "Bicicleta",
 }
 
 MODELS_CONFIG = {
     "vehicle": {
         "file": "yolo11n_coco_vehicle_int8.tflite",
         "edgetpu": "yolo11n_coco_vehicle_int8_edgetpu.tflite",
-        "label": "🚗 Tipo de vehículo",
+        "label": "Tipo de vehículo",
         "hint": "yolo", "scale": 11,
         "desc": "YOLO11n entrenado en COCO — detecta auto, moto, bus, camión, bicicleta. Devuelve bounding boxes con clase y confianza.",
     },
     "color": {
         "file": "color_classifier_int8.tflite",
         "edgetpu": "color_classifier_int8_edgetpu.tflite",
-        "label": "🎨 Color del vehículo",
+        "label": "Color del vehículo",
         "hint": "efficient", "scale": 6,
         "desc": "EfficientNet-lite clasificador de 15 colores (negro, blanco, rojo, azul...). Recibe imagen 224×224 y devuelve probabilidad por color.",
     },
     "brand": {
         "file": "marca_detector_yolo11n_int8.tflite",
         "edgetpu": "marca_detector_yolo11n_int8_edgetpu.tflite",
-        "label": "🏭 Marca del vehículo",
+        "label": "Marca del vehículo",
         "hint": "yolo", "scale": 11,
         "desc": "YOLO11n personalizado entrenado para detectar 30 logos de marcas: Toyota, Volkswagen, BMW, Chevrolet, Honda, etc.",
     },
     "plate": {
         "file": "placa_detector_yolo11n_int8.tflite",
         "edgetpu": "placa_detector_yolo11n_int8_edgetpu.tflite",
-        "label": "📍 Detector de placa",
+        "label": "Detector de placa",
         "hint": "yolo", "scale": 11,
         "desc": "YOLO11n INT8 para detectar placas. Devuelve bbox para recortar y enviar al OCR.",
     },
     "ocr": {
         "file": None,
         "edgetpu": None,
-        "label": "🔤 OCR de placa",
+        "label": "OCR de placa",
         "hint": "cpu_only", "scale": 1,
         "desc": "CCT-XS (Compact Convolutional Transformer) de fast-plate-ocr. Lee caracteres alfanuméricos de la placa recortada. Corre en CPU vía ONNX Runtime (~3ms).",
     },
@@ -347,11 +346,10 @@ def image_source_selector(key_prefix, show_camera=True):
 interpreters = load_interpreters()
 
 with st.sidebar:
-    st.markdown("## 🪸 ANPR Coral Tester")
-    st.markdown("Test de modelos **INT8 cuantizados** para Google Coral Edge TPU")
+   
     st.divider()
 
-    st.markdown("### 📦 Estado de modelos")
+    st.markdown("### Estado de modelos")
     for key, cfg in MODELS_CONFIG.items():
         interp_data = interpreters.get(key)
         label = cfg["label"]
@@ -378,26 +376,17 @@ with st.sidebar:
     st.markdown("**Runs para benchmark:**")
     n_runs = st.slider("", 5, 50, 15, key="bench_runs")
 
-    st.divider()
-    st.markdown("""
-    **Modos de ejecución:**
-    - 🟡 **INT8 sim** = TFLite en CPU, mismos resultados que Coral
-    - 🟢 **Edge TPU** = compilado `_edgetpu.tflite`, requiere hardware
-    - 🟠 **OCR** = ONNX Runtime CPU (transformer no compatible con Edge TPU)
-    """)
-
-
 # ─── Título ───────────────────────────────────────────────────────────────────
 
-st.markdown("# 🪸 ANPR Coral — Quantized Model Tester")
+st.markdown("# ANPR Simulador Coral ")
 st.markdown(
     "Pipeline híbrido: **4 modelos INT8** en Coral + **OCR** en CPU. "
     "Los modelos INT8 dan resultados idénticos a ejecución real en hardware Coral Edge TPU."
 )
 st.divider()
 
-tab_pipeline, tab_individual, tab_benchmark = st.tabs([
-    "🔁 Pipeline completo", "🔬 Modelos individuales", "📊 Benchmark"
+tab_pipeline, tab_individual = st.tabs([
+    "Pipeline completo", "Modelos individuales"
 ])
 
 
@@ -407,13 +396,12 @@ tab_pipeline, tab_individual, tab_benchmark = st.tabs([
 
 with tab_pipeline:
     st.markdown("""
-    **¿Qué hace este tab?**
-    Corre los 5 modelos en secuencia sobre la imagen que subas, igual que el pipeline ANPR real:
-    1. 🚗 **Tipo de vehículo** — detecta si es auto, moto, bus o camión (YOLO11n COCO INT8)
-    2. 🎨 **Color** — clasifica el color dominante entre 15 opciones (EfficientNet INT8)
-    3. 🏭 **Marca** — detecta el logo de la marca entre 30 marcas (YOLO11n personalizado INT8)
-    4. 📍 **Detector de placa** — detecta bbox de la placa en la imagen (YOLO11n INT8)
-    5. 🔤 **OCR de placa** — lee caracteres de la placa recortada (CCT-XS vía ONNX Runtime CPU)
+    **Pipeline**
+    1. **Tipo de vehículo** — detecta si es auto, moto, bus o camión 
+    2. **Color** — clasifica el color dominante entre 15 opciones
+    3. **Marca** — detecta el logo de la marca entre 30 marcas
+    4. **Detector de placa** — detecta bbox de la placa en la imagen 
+    5. **OCR de placa** — lee caracteres de la placa recortada 
 
     Pipeline híbrido: 4 modelos en **Coral INT8** + OCR en **CPU** (ONNX).
     """)
@@ -437,7 +425,7 @@ with tab_pipeline:
                 veh_data = interpreters.get("vehicle")
                 if veh_data:
                     outputs, lat, est, _ = run_model_timed(veh_data, frame_rgb, hint="yolo")
-                    latencias["🚗 Vehículo"] = (lat, est)
+                    latencias["Vehículo"] = (lat, est)
                     cls_id, conf = decode_yolo_top(outputs)
                     detections["vehicle"] = {
                         "class_id": cls_id, "conf": conf,
@@ -450,7 +438,7 @@ with tab_pipeline:
                     outputs, lat, est, _ = run_model_timed(
                         col_data, frame_rgb, target_size=(224, 224), hint="efficient"
                     )
-                    latencias["🎨 Color"] = (lat, est)
+                    latencias["Color"] = (lat, est)
                     out_flat = outputs[0].flatten()
                     top_idx = int(np.argmax(out_flat))
                     top_score = float(out_flat[top_idx])
@@ -470,7 +458,7 @@ with tab_pipeline:
                 brand_data = interpreters.get("brand")
                 if brand_data:
                     outputs, lat, est, _ = run_model_timed(brand_data, frame_rgb, hint="yolo")
-                    latencias["🏭 Marca"] = (lat, est)
+                    latencias["Marca"] = (lat, est)
                     cls_id, conf = decode_yolo_top(outputs, conf_thresh=0.2)
                     detections["brand"] = {
                         "class_id": cls_id,
@@ -483,7 +471,7 @@ with tab_pipeline:
                 plate_bbox = None
                 if plate_data:
                     outputs, lat, est, _ = run_model_timed(plate_data, frame_rgb, hint="yolo")
-                    latencias["📍 Placa"] = (lat, est)
+                    latencias["Placa"] = (lat, est)
                     plate_bbox, plate_conf = decode_yolo_best_bbox(
                         outputs, conf_thresh=0.3, img_shape=frame_rgb.shape[:2],
                         model_input_size=plate_data["interp"].input_shape[1],
@@ -511,7 +499,7 @@ with tab_pipeline:
                         ocr_text, ocr_conf = "—", 0.0
                         st.warning(f"OCR error: {e}")
                     ocr_lat = (time.perf_counter() - t0) * 1000
-                    latencias["🔤 OCR"] = (ocr_lat, ocr_lat)  # CPU-only, no TPU speedup
+                    latencias["OCR"] = (ocr_lat, ocr_lat)  # CPU-only, no TPU speedup
                     plate_crop_rgb = cv2.cvtColor(plate_crop, cv2.COLOR_BGR2RGB)
                     detections["ocr"] = {
                         "text": ocr_text, "conf": ocr_conf,
@@ -520,14 +508,14 @@ with tab_pipeline:
 
             # ── Mostrar resultados ────────────────────────────────────────────
             with col_results:
-                st.markdown("### 🎯 Resultados del pipeline")
+                st.markdown("### Resultados del pipeline")
 
                 # Tipo de vehículo
                 veh = detections.get("vehicle", {})
                 if veh.get("name"):
                     result_card("Tipo de vehículo", veh["name"], f"Confianza: {veh['conf']:.0%}")
                 else:
-                    result_card("Tipo de vehículo", "No detectado", "Confianza < 25%", "🚫")
+                    result_card("Tipo de vehículo", "No detectado", "Confianza < 25%")
 
                 # Color
                 col_det = detections.get("color", {})
@@ -539,9 +527,9 @@ with tab_pipeline:
                 # Marca
                 brand = detections.get("brand", {})
                 if brand.get("name"):
-                    result_card("Marca detectada", brand["name"], f"Confianza: {brand['conf']:.0%}", "🏭")
+                    result_card("Marca detectada", brand["name"], f"Confianza: {brand['conf']:.0%}")
                 else:
-                    result_card("Marca detectada", "No detectada", "Logo no visible o confianza < 20%", "🚫")
+                    result_card("Marca detectada", "No detectada", "Logo no visible o confianza < 20%")
 
                 # Placa (bbox)
                 plate_det = detections.get("plate", {})
@@ -551,10 +539,9 @@ with tab_pipeline:
                         "Placa detectada",
                         f"({x1},{y1}) → ({x2},{y2})",
                         f"Confianza: {plate_det['conf']:.0%}",
-                        "📍",
                     )
                 else:
-                    result_card("Placa detectada", "No detectada", "Usando recorte fallback", "🚫")
+                    result_card("Placa detectada", "No detectada", "Usando recorte fallback")
 
                 # OCR
                 ocr_det = detections.get("ocr", {})
@@ -566,7 +553,6 @@ with tab_pipeline:
                         "Texto de placa (OCR)",
                         txt if txt else "—",
                         f"Confianza OCR: {ocr_c:.0%} | {fb_note}",
-                        "🔤",
                     )
                     if ocr_det.get("crop") is not None:
                         with st.expander("Ver crop enviado al OCR"):
@@ -623,8 +609,8 @@ with tab_pipeline:
 
 with tab_individual:
     st.markdown("""
-    **¿Qué hace este tab?**
-    Prueba **un solo modelo a la vez**. Útil para:
+    Prueba **1 modelo a la vez**. \n
+    Útil para:
     - Ver exactamente qué devuelve cada modelo (output crudo)
     - Debuggear imágenes problemáticas
     - Ver la latencia individual sin el resto del pipeline
@@ -639,7 +625,6 @@ with tab_individual:
     )
 
     cfg_sel = MODELS_CONFIG[model_sel]
-    st.info(f"ℹ️ **{cfg_sel['label']}** — {cfg_sel['desc']}")
 
     frame2_rgb, frame2_bgr = image_source_selector("ind", show_camera=False)
 
@@ -649,7 +634,54 @@ with tab_individual:
         if st.button(f"▶ Ejecutar {cfg_sel['label']}", key="run_ind"):
             interp_data = interpreters.get(model_sel)
 
-            if not interp_data:
+            # ── OCR (ONNX CPU) — check first, it has no TFLite file ──────
+            if model_sel == "ocr":
+                ocr2 = load_ocr()
+                if not ocr2:
+                    st.error("OCR no disponible. Instala: `pip install 'fast-plate-ocr[onnx]'`")
+                else:
+                    # First detect plate bbox to get a good crop
+                    plate_data = interpreters.get("plate")
+                    plate_crop_bgr = None
+                    if plate_data:
+                        p_out, _, _, _ = run_model_timed(plate_data, frame2_rgb, hint="yolo")
+                        bbox, pconf = decode_yolo_best_bbox(
+                            p_out, conf_thresh=0.3, img_shape=frame2_rgb.shape[:2],
+                            model_input_size=plate_data["interp"].input_shape[1],
+                        )
+                        if bbox:
+                            x1, y1, x2, y2 = bbox
+                            crop = frame2_bgr[y1:y2, x1:x2]
+                            if crop.size > 0:
+                                plate_crop_bgr = crop
+                                st.info(f"Placa detectada ({pconf:.0%}) — usando bbox para crop")
+
+                    if plate_crop_bgr is None:
+                        h, w = frame2_rgb.shape[:2]
+                        plate_crop_bgr = frame2_bgr[int(h * 0.55):, int(w * 0.15):int(w * 0.85)]
+                        st.warning("⚠️ Detector de placa no disponible — usando recorte fallback")
+
+                    t0 = time.perf_counter()
+                    try:
+                        text, ocr_conf = read_plate_text(ocr2, plate_crop_bgr)
+                    except Exception as e:
+                        text, ocr_conf = f"Error: {e}", 0.0
+                    lat = (time.perf_counter() - t0) * 1000
+
+                    st.success(f"**Texto de placa:** `{text or '(vacío)'}`")
+                    c1, c2, c3 = st.columns(3)
+                    c1.metric("Latencia CPU (ONNX)", f"{lat:.1f} ms")
+                    c2.metric("Confianza OCR", f"{ocr_conf:.0%}")
+                    c3.metric("Mode", "CPU only", help="CCT Transformer no soportado por Edge TPU")
+                    plate_crop_rgb = cv2.cvtColor(plate_crop_bgr, cv2.COLOR_BGR2RGB)
+                    st.image(
+                        plate_crop_rgb,
+                        caption=f"Crop enviado al OCR ({plate_crop_rgb.shape[1]}x{plate_crop_rgb.shape[0]}px)",
+                        width=256,
+                    )
+
+            # ── Guard: TFLite model not found ────────────────────────────────
+            elif not interp_data:
                 st.error(f"Modelo `{model_sel}` no encontrado en `models/tflite_exports/`.")
 
             # ── Plate detector ───────────────────────────────────────────────
@@ -684,52 +716,6 @@ with tab_individual:
                     f"Archivo: `{interp_data['file']}` | Backend: `{backend}` | "
                     f"Input: `{inp['dtype'].__name__} {inp['shape'].tolist()}`"
                 )
-
-            # ── OCR (ONNX CPU) ───────────────────────────────────────────────
-            elif model_sel == "ocr":
-                ocr2 = load_ocr()
-                if not ocr2:
-                    st.error("OCR no disponible. Instala: `pip install 'fast-plate-ocr[onnx]'`")
-                else:
-                    # First detect plate bbox to get a good crop
-                    plate_data = interpreters.get("plate")
-                    plate_crop_bgr = None
-                    if plate_data:
-                        p_out, _, _, _ = run_model_timed(plate_data, frame2_rgb, hint="yolo")
-                        bbox, pconf = decode_yolo_best_bbox(
-                            p_out, conf_thresh=0.3, img_shape=frame2_rgb.shape[:2],
-                            model_input_size=plate_data["interp"].input_shape[1],
-                        )
-                        if bbox:
-                            x1, y1, x2, y2 = bbox
-                            crop = frame2_bgr[y1:y2, x1:x2]
-                            if crop.size > 0:
-                                plate_crop_bgr = crop
-                                st.info(f"📍 Placa detectada ({pconf:.0%}) — usando bbox para crop")
-
-                    if plate_crop_bgr is None:
-                        h, w = frame2_rgb.shape[:2]
-                        plate_crop_bgr = frame2_bgr[int(h * 0.55):, int(w * 0.15):int(w * 0.85)]
-                        st.warning("⚠️ Detector de placa no disponible — usando recorte fallback")
-
-                    t0 = time.perf_counter()
-                    try:
-                        text, ocr_conf = read_plate_text(ocr2, plate_crop_bgr)
-                    except Exception as e:
-                        text, ocr_conf = f"Error: {e}", 0.0
-                    lat = (time.perf_counter() - t0) * 1000
-
-                    st.success(f"**Texto de placa:** `{text or '(vacío)'}`")
-                    c1, c2, c3 = st.columns(3)
-                    c1.metric("Latencia CPU (ONNX)", f"{lat:.1f} ms")
-                    c2.metric("Confianza OCR", f"{ocr_conf:.0%}")
-                    c3.metric("Mode", "CPU only", help="CCT Transformer no soportado por Edge TPU")
-                    plate_crop_rgb = cv2.cvtColor(plate_crop_bgr, cv2.COLOR_BGR2RGB)
-                    st.image(
-                        plate_crop_rgb,
-                        caption=f"Crop enviado al OCR ({plate_crop_rgb.shape[1]}x{plate_crop_rgb.shape[0]}px)",
-                        width=256,
-                    )
 
             # ── TFLite models (vehicle, color, brand) ────────────────────────
             else:
@@ -795,145 +781,145 @@ with tab_individual:
 # TAB 3 — BENCHMARK
 # ══════════════════════════════════════════════════════════════════════════════
 
-with tab_benchmark:
-    st.markdown(f"""
-    **¿Qué hace este tab?**
-    Corre **{n_runs} inferencias por modelo** con imágenes dummy de ceros para medir
-    latencia estable (sin carga de imagen, solo inferencia pura). Luego proyecta cuánto
-    tardaría en **Coral Edge TPU real** basándose en benchmarks públicos de hardware similar.
+# with tab_benchmark:
+#     st.markdown(f"""
+#     **¿Qué hace este tab?**
+#     Corre **{n_runs} inferencias por modelo** con imágenes dummy de ceros para medir
+#     latencia estable (sin carga de imagen, solo inferencia pura). Luego proyecta cuánto
+#     tardaría en **Coral Edge TPU real** basándose en benchmarks públicos de hardware similar.
 
-    > Los modelos _edgetpu.tflite compilados tardarían ≈10× menos en hardware real.
-    """)
-    st.divider()
+#     > Los modelos _edgetpu.tflite compilados tardarían ≈10× menos en hardware real.
+#     """)
+#     st.divider()
 
-    if st.button("▶ Ejecutar benchmark completo", use_container_width=True, key="run_bench"):
-        results = {}
-        progress = st.progress(0, text="Iniciando...")
-        available = [(k, v) for k, v in interpreters.items() if v is not None]
-        total_steps = len(available) + 1  # +1 for OCR step
+#     if st.button("▶ Ejecutar benchmark completo", use_container_width=True, key="run_bench"):
+#         results = {}
+#         progress = st.progress(0, text="Iniciando...")
+#         available = [(k, v) for k, v in interpreters.items() if v is not None]
+#         total_steps = len(available) + 1  # +1 for OCR step
 
-        for i, (key, interp_data) in enumerate(available):
-            cfg = MODELS_CONFIG[key]
-            progress.progress((i) / max(total_steps, 1), text=f"Benchmarking {cfg['label']}...")
-            interp = interp_data["interp"]
-            inp_det = interp.input_details[0]
-            dummy = np.zeros(inp_det["shape"], dtype=inp_det["dtype"])
+#         for i, (key, interp_data) in enumerate(available):
+#             cfg = MODELS_CONFIG[key]
+#             progress.progress((i) / max(total_steps, 1), text=f"Benchmarking {cfg['label']}...")
+#             interp = interp_data["interp"]
+#             inp_det = interp.input_details[0]
+#             dummy = np.zeros(inp_det["shape"], dtype=inp_det["dtype"])
 
-            lats = []
-            for _ in range(n_runs):
-                interp.set_input_tensor(dummy.copy())
-                r = interp.invoke(model_hint=cfg["hint"])
-                lats.append(r.latency_ms)
+#             lats = []
+#             for _ in range(n_runs):
+#                 interp.set_input_tensor(dummy.copy())
+#                 r = interp.invoke(model_hint=cfg["hint"])
+#                 lats.append(r.latency_ms)
 
-            arr = np.array(lats)
-            results[key] = {
-                "mean": float(arr.mean()), "min": float(arr.min()),
-                "p95": float(np.percentile(arr, 95)),
-                "est_tpu": float(arr.mean() / cfg["scale"]),
-                "scale": cfg["scale"], "label": cfg["label"],
-                "file": interp_data["file"],
-            }
+#             arr = np.array(lats)
+#             results[key] = {
+#                 "mean": float(arr.mean()), "min": float(arr.min()),
+#                 "p95": float(np.percentile(arr, 95)),
+#                 "est_tpu": float(arr.mean() / cfg["scale"]),
+#                 "scale": cfg["scale"], "label": cfg["label"],
+#                 "file": interp_data["file"],
+#             }
 
-        # OCR benchmark (ONNX CPU)
-        progress.progress(len(available) / max(total_steps, 1), text="Benchmarking OCR (ONNX)...")
-        ocr3 = load_ocr()
-        ocr_mean = None
-        if ocr3:
-            dummy_plate = np.zeros((64, 128, 3), dtype=np.uint8)
-            lats_ocr = []
-            for _ in range(n_runs):
-                t0 = time.perf_counter()
-                try:
-                    read_plate_text(ocr3, dummy_plate)
-                except Exception:
-                    pass  # Dummy image, errors expected
-                lats_ocr.append((time.perf_counter() - t0) * 1000)
-            ocr_mean = float(np.mean(lats_ocr))
+#         # OCR benchmark (ONNX CPU)
+#         progress.progress(len(available) / max(total_steps, 1), text="Benchmarking OCR (ONNX)...")
+#         ocr3 = load_ocr()
+#         ocr_mean = None
+#         if ocr3:
+#             dummy_plate = np.zeros((64, 128, 3), dtype=np.uint8)
+#             lats_ocr = []
+#             for _ in range(n_runs):
+#                 t0 = time.perf_counter()
+#                 try:
+#                     read_plate_text(ocr3, dummy_plate)
+#                 except Exception:
+#                     pass  # Dummy image, errors expected
+#                 lats_ocr.append((time.perf_counter() - t0) * 1000)
+#             ocr_mean = float(np.mean(lats_ocr))
 
-        progress.progress(1.0, text="¡Listo!")
+#         progress.progress(1.0, text="¡Listo!")
 
-        # ── Tabla de resultados ───────────────────────────────────────────────
-        st.markdown("### Resultados")
-        cols = st.columns([2.5, 1, 1, 1, 1.2, 0.8])
-        for col, h in zip(cols, ["Modelo", "Media", "Mín", "P95", "Est. TPU", "Speedup"]):
-            col.markdown(f"**{h}**")
+#         # ── Tabla de resultados ───────────────────────────────────────────────
+#         st.markdown("### Resultados")
+#         cols = st.columns([2.5, 1, 1, 1, 1.2, 0.8])
+#         for col, h in zip(cols, ["Modelo", "Media", "Mín", "P95", "Est. TPU", "Speedup"]):
+#             col.markdown(f"**{h}**")
 
-        total_cpu = 0.0
-        total_tpu = 0.0
-        for key, res in results.items():
-            c1, c2, c3, c4, c5, c6 = st.columns([2.5, 1, 1, 1, 1.2, 0.8])
-            c1.markdown(res["label"])
-            c2.markdown(f"`{res['mean']:.1f} ms`")
-            c3.markdown(f"`{res['min']:.1f} ms`")
-            c4.markdown(f"`{res['p95']:.1f} ms`")
-            c5.markdown(f"**`{res['est_tpu']:.1f} ms`**")
-            c6.markdown(f"~{res['scale']}×")
-            total_cpu += res["mean"]
-            total_tpu += res["est_tpu"]
+#         total_cpu = 0.0
+#         total_tpu = 0.0
+#         for key, res in results.items():
+#             c1, c2, c3, c4, c5, c6 = st.columns([2.5, 1, 1, 1, 1.2, 0.8])
+#             c1.markdown(res["label"])
+#             c2.markdown(f"`{res['mean']:.1f} ms`")
+#             c3.markdown(f"`{res['min']:.1f} ms`")
+#             c4.markdown(f"`{res['p95']:.1f} ms`")
+#             c5.markdown(f"**`{res['est_tpu']:.1f} ms`**")
+#             c6.markdown(f"~{res['scale']}×")
+#             total_cpu += res["mean"]
+#             total_tpu += res["est_tpu"]
 
-        if ocr_mean is not None:
-            c1, c2, c3, c4, c5, c6 = st.columns([2.5, 1, 1, 1, 1.2, 0.8])
-            c1.markdown("🔤 OCR (ONNX)")
-            c2.markdown(f"`{ocr_mean:.1f} ms`")
-            c3.markdown("—")
-            c4.markdown("—")
-            c5.markdown("`CPU only`")
-            c6.markdown("1×")
-            total_cpu += ocr_mean
-            total_tpu += ocr_mean  # OCR stays on CPU
+#         if ocr_mean is not None:
+#             c1, c2, c3, c4, c5, c6 = st.columns([2.5, 1, 1, 1, 1.2, 0.8])
+#             c1.markdown("🔤 OCR (ONNX)")
+#             c2.markdown(f"`{ocr_mean:.1f} ms`")
+#             c3.markdown("—")
+#             c4.markdown("—")
+#             c5.markdown("`CPU only`")
+#             c6.markdown("1×")
+#             total_cpu += ocr_mean
+#             total_tpu += ocr_mean  # OCR stays on CPU
 
-        st.divider()
-        c1, c2, c3 = st.columns(3)
-        with c1:
-            st.markdown(
-                f"<div class='metric-card'><div class='val'>{total_cpu:.0f}"
-                f"<span style='font-size:1rem'>ms</span></div>"
-                f"<div class='lbl'>Total pipeline CPU</div></div>",
-                unsafe_allow_html=True
-            )
-        with c2:
-            st.markdown(
-                f"<div class='metric-card'><div class='val' style='color:#3fb950'>{total_tpu:.0f}"
-                f"<span style='font-size:1rem'>ms</span></div>"
-                f"<div class='lbl'>Estimado Coral TPU</div></div>",
-                unsafe_allow_html=True
-            )
-        with c3:
-            speedup = total_cpu / max(total_tpu, 1)
-            st.markdown(
-                f"<div class='metric-card'><div class='val' style='color:#d29922'>{speedup:.1f}×</div>"
-                f"<div class='lbl'>Speedup total estimado</div></div>",
-                unsafe_allow_html=True
-            )
+#         st.divider()
+#         c1, c2, c3 = st.columns(3)
+#         with c1:
+#             st.markdown(
+#                 f"<div class='metric-card'><div class='val'>{total_cpu:.0f}"
+#                 f"<span style='font-size:1rem'>ms</span></div>"
+#                 f"<div class='lbl'>Total pipeline CPU</div></div>",
+#                 unsafe_allow_html=True
+#             )
+#         with c2:
+#             st.markdown(
+#                 f"<div class='metric-card'><div class='val' style='color:#3fb950'>{total_tpu:.0f}"
+#                 f"<span style='font-size:1rem'>ms</span></div>"
+#                 f"<div class='lbl'>Estimado Coral TPU</div></div>",
+#                 unsafe_allow_html=True
+#             )
+#         with c3:
+#             speedup = total_cpu / max(total_tpu, 1)
+#             st.markdown(
+#                 f"<div class='metric-card'><div class='val' style='color:#d29922'>{speedup:.1f}×</div>"
+#                 f"<div class='lbl'>Speedup total estimado</div></div>",
+#                 unsafe_allow_html=True
+#             )
 
-        st.info("""
-        **Notas sobre los estimados Coral:**
-        - **YOLO nano INT8 (640px):** ~17ms en Coral USB → factor ~11× sobre CPU M4
-        - **EfficientNet-lite INT8:** ~4ms en Coral → factor ~6×
-        - **OCR CCT-XS:** queda en CPU — los transformers (self-attention) no son compatibles con Edge TPU
-        - Los `_edgetpu.tflite` requieren compilar con `bash scripts/07_compilar_edgetpu.sh` en Linux/Docker amd64
-        """)
+#         st.info("""
+#         **Notas sobre los estimados Coral:**
+#         - **YOLO nano INT8 (640px):** ~17ms en Coral USB → factor ~11× sobre CPU M4
+#         - **EfficientNet-lite INT8:** ~4ms en Coral → factor ~6×
+#         - **OCR CCT-XS:** queda en CPU — los transformers (self-attention) no son compatibles con Edge TPU
+#         - Los `_edgetpu.tflite` requieren compilar con `bash scripts/07_compilar_edgetpu.sh` en Linux/Docker amd64
+#         """)
 
-    # ── Estado de archivos ────────────────────────────────────────────────────
-    st.markdown("---")
-    st.markdown("#### 📁 Estado de archivos en `models/tflite_exports/`")
-    esperados = [
-        ("yolo11n_coco_vehicle_int8.tflite",           "Vehicle INT8 ✅"),
-        ("yolo11n_coco_vehicle_int8_edgetpu.tflite",   "Vehicle Edge TPU"),
-        ("color_classifier_int8.tflite",               "Color INT8 ✅"),
-        ("color_classifier_int8_edgetpu.tflite",        "Color Edge TPU"),
-        ("marca_detector_yolo11n_int8.tflite",         "Brand INT8 ✅"),
-        ("marca_detector_yolo11n_int8_edgetpu.tflite", "Brand Edge TPU"),
-        ("placa_detector_yolo11n_int8.tflite",         "Plate INT8 ✅"),
-        ("placa_detector_yolo11n_int8_edgetpu.tflite", "Plate Edge TPU"),
-    ]
-    for fname, label in esperados:
-        path = EXPORTS_DIR / fname
-        if path.exists():
-            size = path.stat().st_size / 1024 / 1024
-            st.markdown(f"✅ `{fname}` — {size:.1f} MB — *{label}*")
-        else:
-            is_edgetpu = "_edgetpu" in fname
-            icon = "⏳" if is_edgetpu else "❌"
-            hint = "→ `bash scripts/07_compilar_edgetpu.sh` (requiere Docker + Linux/amd64)" if is_edgetpu else "→ run export script"
-            st.markdown(f"{icon} `{fname}` — *{label}* {hint}")
+#     # ── Estado de archivos ────────────────────────────────────────────────────
+#     st.markdown("---")
+#     st.markdown("#### 📁 Estado de archivos en `models/tflite_exports/`")
+#     esperados = [
+#         ("yolo11n_coco_vehicle_int8.tflite",           "Vehicle INT8 ✅"),
+#         ("yolo11n_coco_vehicle_int8_edgetpu.tflite",   "Vehicle Edge TPU"),
+#         ("color_classifier_int8.tflite",               "Color INT8 ✅"),
+#         ("color_classifier_int8_edgetpu.tflite",        "Color Edge TPU"),
+#         ("marca_detector_yolo11n_int8.tflite",         "Brand INT8 ✅"),
+#         ("marca_detector_yolo11n_int8_edgetpu.tflite", "Brand Edge TPU"),
+#         ("placa_detector_yolo11n_int8.tflite",         "Plate INT8 ✅"),
+#         ("placa_detector_yolo11n_int8_edgetpu.tflite", "Plate Edge TPU"),
+#     ]
+#     for fname, label in esperados:
+#         path = EXPORTS_DIR / fname
+#         if path.exists():
+#             size = path.stat().st_size / 1024 / 1024
+#             st.markdown(f"✅ `{fname}` — {size:.1f} MB — *{label}*")
+#         else:
+#             is_edgetpu = "_edgetpu" in fname
+#             icon = "⏳" if is_edgetpu else "❌"
+#             hint = "→ `bash scripts/07_compilar_edgetpu.sh` (requiere Docker + Linux/amd64)" if is_edgetpu else "→ run export script"
+#             st.markdown(f"{icon} `{fname}` — *{label}* {hint}")
