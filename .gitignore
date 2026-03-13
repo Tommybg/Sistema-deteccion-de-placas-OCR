@@ -15,7 +15,6 @@ Proyecto-Placas-*/
 Dataset-marcas/
 placas_dataset/
 dataset_marcas_combinado/
-docs/
 # --- Resultados de Entrenamiento ---
 # Ignoramos logs masivos y checkpoints intermedios
 runs/
@@ -23,7 +22,12 @@ output/
 wandb/
 
 # --- Documentación interna ---
-docs/
+docs/*
+!docs/GUIA_IMPLEMENTACION_CORAL.md
+
+# --- Artefactos de compilación Edge TPU ---
+models/compiled_edgetpu/
+apt-key.gpg
 
 # --- IDEs ---
 .vscode/

@@ -1,6 +1,6 @@
 """
 Vehicle color classification module.
-Supports both Keras (.h5) and TFLite backends.
+Supports YOLO (.pt), Keras (.h5), and TFLite backends.
 """
 
 from pathlib import Path
@@ -22,15 +22,21 @@ EN_TO_ES = {
 }
 
 DEFAULT_MODEL_PATH = Path(__file__).parent.parent / "models" / "color_classifier_efficientnet.h5"
+DEFAULT_YOLO_PATH = Path(__file__).parent.parent / "models" / "color_classifier_yolo11n.pt"
 DEFAULT_TFLITE_PATH = Path(__file__).parent.parent / "models" / "tflite_exports" / "color_classifier_int8.tflite"
 
 
 class ColorClassifier:
-    def __init__(self, model_path=None, input_size=224, use_tflite=False):
+    def __init__(self, model_path=None, input_size=224, use_tflite=False, use_yolo=False):
         self.input_size = input_size
         self.use_tflite = use_tflite
+        self.use_yolo = use_yolo
 
-        if use_tflite:
+        if use_yolo:
+            from ultralytics import YOLO
+            model_path = str(model_path or DEFAULT_YOLO_PATH)
+            self.model = YOLO(model_path)
+        elif use_tflite:
             # Try ai-edge-litert (Google's successor), then tflite-runtime, then full TF
             try:
                 from ai_edge_litert.interpreter import Interpreter
@@ -54,6 +60,18 @@ class ColorClassifier:
 
         Returns: {"color": "Blanco", "confidence": 0.92}
         """
+        if self.use_yolo:
+            # YOLO handles preprocessing internally
+            results = self.model.predict(vehicle_crop, imgsz=self.input_size, verbose=False)
+            probs = results[0].probs
+            idx = probs.top1
+            en_name = self.model.names[idx]
+            return {
+                "color": EN_TO_ES[en_name],
+                "color_en": en_name,
+                "confidence": float(probs.top1conf),
+            }
+
         # Resize to model input size
         img = cv2.resize(vehicle_crop, (self.input_size, self.input_size))
         # Convert BGR to RGB

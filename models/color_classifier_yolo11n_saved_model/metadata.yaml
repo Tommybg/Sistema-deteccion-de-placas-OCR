@@ -1,0 +1,36 @@
+description: Ultralytics YOLO11n-cls model trained on /Users/tommygoat/Desktop/claude_cowork/placas/anpr_project/datasets/vehicle_colors
+author: Ultralytics
+date: '2026-03-13T17:26:28.461390'
+version: 8.4.9
+license: AGPL-3.0 License (https://ultralytics.com/license)
+docs: https://docs.ultralytics.com
+stride: 1
+task: classify
+batch: 1
+imgsz:
+- 224
+- 224
+names:
+  0: beige
+  1: black
+  2: blue
+  3: brown
+  4: gold
+  5: green
+  6: grey
+  7: orange
+  8: pink
+  9: purple
+  10: red
+  11: silver
+  12: tan
+  13: white
+  14: yellow
+args:
+  batch: 1
+  fraction: 1.0
+  half: false
+  int8: true
+  nms: false
+channels: 3
+end2end: false
