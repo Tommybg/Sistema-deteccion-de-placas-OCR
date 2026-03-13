@@ -11,7 +11,7 @@ Tabs:
 
 Pipeline híbrido: 4 modelos INT8 TFLite vía CoralInterpreter + OCR en CPU:
   - Vehicle detector (YOLO11n COCO) — Coral INT8
-  - Color classifier (EfficientNet-lite) — Coral INT8
+  - Color classifier (YOLO11n-cls) — Coral INT8
   - Brand detector (YOLO11n custom) — Coral INT8
   - Plate detector (YOLO11n custom) — Coral INT8
   - OCR (CCT-XS) — CPU vía ONNX Runtime (transformer no compatible con Edge TPU)
@@ -141,7 +141,7 @@ MODELS_CONFIG = {
         "edgetpu": "color_classifier_int8_edgetpu.tflite",
         "label": "Color del vehículo",
         "hint": "efficient", "scale": 6,
-        "desc": "EfficientNet-lite clasificador de 15 colores (negro, blanco, rojo, azul...). Recibe imagen 224×224 y devuelve probabilidad por color.",
+        "desc": "YOLO11n-cls clasificador de 15 colores (negro, blanco, rojo, azul...). Recibe imagen 224×224 y devuelve probabilidad por color.",
     },
     "brand": {
         "file": "marca_detector_yolo11n_int8.tflite",
@@ -372,9 +372,9 @@ with st.sidebar:
             unsafe_allow_html=True
         )
 
-    st.divider()
-    st.markdown("**Runs para benchmark:**")
-    n_runs = st.slider("", 5, 50, 15, key="bench_runs")
+    # st.divider()
+    # st.markdown("**Runs para benchmark:**")
+    # n_runs = st.slider("", 5, 50, 15, key="bench_runs")
 
 # ─── Título ───────────────────────────────────────────────────────────────────
 
@@ -423,33 +423,51 @@ with tab_pipeline:
 
                 # ── 1. Tipo de vehículo (YOLO COCO) ──────────────────────────
                 veh_data = interpreters.get("vehicle")
+                vehicle_bbox = None
                 if veh_data:
                     outputs, lat, est, _ = run_model_timed(veh_data, frame_rgb, hint="yolo")
                     latencias["Vehículo"] = (lat, est)
                     cls_id, conf = decode_yolo_top(outputs)
+                    vehicle_bbox, _ = decode_yolo_best_bbox(
+                        outputs, conf_thresh=0.25, img_shape=frame_rgb.shape[:2],
+                        model_input_size=veh_data["interp"].input_shape[1],
+                    )
                     detections["vehicle"] = {
                         "class_id": cls_id, "conf": conf,
-                        "name": VEHICLE_CLASSES.get(cls_id, f"clase {cls_id}") if cls_id is not None else None
+                        "name": VEHICLE_CLASSES.get(cls_id, f"clase {cls_id}") if cls_id is not None else None,
+                        "bbox": vehicle_bbox,
                     }
 
-                # ── 2. Color ─────────────────────────────────────────────────
+                # ── 2. Color (sobre crop del vehículo) ─────────────────────
                 col_data = interpreters.get("color")
                 if col_data:
+                    # Usar crop del vehículo si hay bbox, sino imagen completa
+                    if vehicle_bbox:
+                        vx1, vy1, vx2, vy2 = vehicle_bbox
+                        color_input = frame_rgb[vy1:vy2, vx1:vx2]
+                        if color_input.size == 0:
+                            color_input = frame_rgb
+                    else:
+                        color_input = frame_rgb
                     outputs, lat, est, _ = run_model_timed(
-                        col_data, frame_rgb, target_size=(224, 224), hint="efficient"
+                        col_data, color_input, target_size=(224, 224), hint="efficient"
                     )
                     latencias["Color"] = (lat, est)
-                    out_flat = outputs[0].flatten()
-                    top_idx = int(np.argmax(out_flat))
-                    top_score = float(out_flat[top_idx])
+                    out_flat = outputs[0].flatten().astype(np.float32)
+                    # Softmax para normalizar scores (funciona con INT8 y UINT8)
+                    exp_vals = np.exp(out_flat - np.max(out_flat))
+                    probs = exp_vals / exp_vals.sum()
+                    top_idx = int(np.argmax(probs))
+                    top_score = float(probs[top_idx])
                     eng_color = COLOR_CLASSES[top_idx] if top_idx < len(COLOR_CLASSES) else "?"
                     detections["color"] = {
                         "eng": eng_color,
                         "es": COLOR_ES.get(eng_color, eng_color),
                         "score": top_score,
+                        "used_crop": vehicle_bbox is not None,
                         "top3": [
-                            (COLOR_ES.get(COLOR_CLASSES[i], COLOR_CLASSES[i]), float(out_flat[i]))
-                            for i in np.argsort(out_flat)[-3:][::-1]
+                            (COLOR_ES.get(COLOR_CLASSES[i], COLOR_CLASSES[i]), float(probs[i]))
+                            for i in np.argsort(probs)[-3:][::-1]
                             if i < len(COLOR_CLASSES)
                         ]
                     }
@@ -521,8 +539,9 @@ with tab_pipeline:
                 col_det = detections.get("color", {})
                 if col_det:
                     emoji_c = COLOR_EMOJI.get(col_det["eng"], "🎨")
-                    top3_str = "  |  ".join([f"{n} ({int(s)}/255)" for n, s in col_det["top3"]])
-                    result_card("Color del vehículo", col_det["es"], f"Top 3: {top3_str}", emoji_c)
+                    top3_str = "  |  ".join([f"{n} ({s:.0%})" for n, s in col_det["top3"]])
+                    crop_note = "crop vehículo" if col_det.get("used_crop") else "imagen completa"
+                    result_card("Color del vehículo", col_det["es"], f"Top 3: {top3_str} ({crop_note})", emoji_c)
 
                 # Marca
                 brand = detections.get("brand", {})
@@ -735,13 +754,15 @@ with tab_individual:
                 # ── Color: mostrar top-5 ─────────────────────────────────────
                 if model_sel == "color":
                     st.markdown("**Top 5 colores detectados:**")
-                    out_flat = outputs[0].flatten()
-                    for i in np.argsort(out_flat)[-5:][::-1]:
+                    out_flat = outputs[0].flatten().astype(np.float32)
+                    exp_vals = np.exp(out_flat - np.max(out_flat))
+                    probs = exp_vals / exp_vals.sum()
+                    for i in np.argsort(probs)[-5:][::-1]:
                         if i >= len(COLOR_CLASSES):
                             continue
                         name = COLOR_ES.get(COLOR_CLASSES[i], COLOR_CLASSES[i])
                         emoji_c = COLOR_EMOJI.get(COLOR_CLASSES[i], "")
-                        pct = float(out_flat[i]) / 255.0
+                        pct = float(probs[i])
                         st.progress(pct, text=f"{emoji_c} {name}  ({pct:.1%})")
 
                 # ── Brand / Vehicle: top detección ───────────────────────────
