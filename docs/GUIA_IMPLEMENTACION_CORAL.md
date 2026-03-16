@@ -166,7 +166,6 @@ La libreria `fast-plate-ocr` se instala via pip y descarga el modelo automaticam
 
 Todos los modelos que corren en Coral Edge TPU estan cuantizados en formato **INT8** (enteros de 8 bits). Esto significa que:
 
-- Los pesos y activaciones del modelo se representan con numeros enteros de -128 a 127, en lugar de numeros flotantes de 32 bits
 - Esto reduce el tamano del modelo en ~4x y acelera la inferencia significativamente
 - El Edge TPU de Google **solo acepta modelos INT8** completamente cuantizados
 - La cuantizacion se realiza con un dataset de calibracion que asegura que la precision se mantenga
@@ -174,25 +173,6 @@ Todos los modelos que corren en Coral Edge TPU estan cuantizados en formato **IN
 La perdida de precision por cuantizacion es minima (generalmente <1-2% en accuracy) y es el estandar de la industria para inferencia en dispositivos edge.
 
 ---
-
-## 6. Hardware Recomendado
-
-### Opcion 1: Coral USB Accelerator + Mini PC
-
-- **Coral USB Accelerator** (~$60 USD) — conecta via USB 3.0
-- **Mini PC ARM** (Raspberry Pi 5, NVIDIA Jetson, o similar)
-- Los 4 modelos TFLite corren en el Coral, el OCR corre en la CPU del mini PC
-
-### Opcion 2: Coral Dev Board
-
-- **Coral Dev Board** (~$150 USD) — sistema completo con Edge TPU integrado
-- Todo-en-uno: CPU ARM + Edge TPU en una sola placa
-
-### Opcion 3: Coral M.2 Accelerator
-
-- **Coral M.2 Module** — se instala directamente en un slot M.2 de un PC industrial
-- Ideal para integracion en equipos existentes tipo rack o gabinete
-
 ### Requerimientos de software
 
 | Componente | Version |
@@ -277,10 +257,8 @@ Las latencias de CPU se midieron con el simulador incluido en el sistema. Las la
 
 2. **Marca depende de visibilidad del logo:** Si el logo esta tapado, sucio o el angulo no lo muestra, el detector de marca no puede identificarla. Es la deteccion con menor tasa de exito por naturaleza.
 
-3. **Color depende del recorte:** El clasificador de color funciona bien cuando recibe un crop limpio del vehiculo. Si el detector de vehiculos falla, el color se clasifica sobre la imagen completa con menor precision.
+3. **Condiciones de iluminacion:** Como todo sistema de vision por computadora, funciona mejor con buena iluminacion. Condiciones nocturnas o contraluz pueden reducir la precision, especialmente del color y la marca.
 
-4. **Condiciones de iluminacion:** Como todo sistema de vision por computadora, funciona mejor con buena iluminacion. Condiciones nocturnas o contraluz pueden reducir la precision, especialmente del color y la marca.
+4. **30 marcas:** El detector de marca cubre 30 marcas comerciales. Vehiculos de marcas no incluidas (ej: marcas chinas emergentes) no seran identificados.
 
-5. **30 marcas:** El detector de marca cubre 30 marcas comerciales. Vehiculos de marcas no incluidas (ej: marcas chinas emergentes) no seran identificados.
-
-6. **Compilacion Edge TPU:** La compilacion final de los modelos para Coral (`edgetpu_compiler`) requiere un entorno Linux x86_64. Se puede hacer en Docker o en una maquina virtual, pero no directamente en Mac o Windows.
+5. **Compilacion Edge TPU:** La compilacion final de los modelos para Coral (`edgetpu_compiler`) requiere un entorno Linux x86_64. Se puede hacer en Docker o en una maquina virtual, pero no directamente en Mac o Windows. 
