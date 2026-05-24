@@ -13,12 +13,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-# Ensure the repo root is on sys.path so `scripts.*` imports resolve.
-_REPO_ROOT = Path(__file__).resolve().parents[4]
-if str(_REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(_REPO_ROOT))
+from app.config import settings
 
-from app.config import settings  # noqa: E402
+# Ensure the repo root is on sys.path so `scripts.*` imports resolve,
+# both when running from source and inside the Docker image.
+if str(settings.REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(settings.REPO_ROOT))
 
 log = logging.getLogger(__name__)
 

@@ -5,9 +5,23 @@ from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-# Default repo root: apps/api/app/config.py -> parents[3] is the repo root
-# when running from source. Overridden by REPO_ROOT env var in Docker.
-_DEFAULT_REPO_ROOT = Path(__file__).resolve().parents[3]
+# Default repo root: works for both layouts.
+#   Source: apps/api/app/config.py        → parents[3] is the repo root.
+#   Docker: /app/app/config.py            → parents[1] is /app (repo root in
+#           the container, where scripts/, models/, samples/ are copied).
+# Overridable via REPO_ROOT env var. Don't raise IndexError on shallow paths.
+def _detect_repo_root() -> Path:
+    here = Path(__file__).resolve()
+    for idx in (3, 1):
+        if idx < len(here.parents):
+            candidate = here.parents[idx]
+            if (candidate / "scripts").exists() or (candidate / "models").exists():
+                return candidate
+    # Last resort: highest parent we have
+    return here.parents[min(len(here.parents) - 1, 3)]
+
+
+_DEFAULT_REPO_ROOT = _detect_repo_root()
 
 
 class Settings(BaseSettings):
