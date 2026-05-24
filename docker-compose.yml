@@ -1,0 +1,51 @@
+version: "3.9"
+
+# Local development stack for the new ANPR architecture.
+# The legacy Streamlit app is unaffected by this file.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: anpr
+      POSTGRES_PASSWORD: anpr
+      POSTGRES_DB: anpr
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U anpr"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    environment:
+      DATABASE_URL: postgresql+asyncpg://anpr:anpr@postgres:5432/anpr
+      FRONTEND_URL: http://localhost:3000
+      CORS_ORIGINS: '["http://localhost:3000"]'
+      MODEL_DIR: /app/models
+      INFERENCE_DEVICE: cpu
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+
+volumes:
+  postgres_data:

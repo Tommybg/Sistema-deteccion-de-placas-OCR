@@ -1,0 +1,35 @@
+# ANPR FastAPI backend — extends requirements-deploy.txt
+
+# Core ML/DL (matches existing Streamlit stack)
+ultralytics>=8.0.0
+torch>=2.0.0
+torchvision>=0.15.0
+
+# OCR
+fast-plate-ocr[onnx]
+
+# Computer Vision
+opencv-python-headless>=4.5.0
+numpy>=1.21.0
+pillow>=9.0.0
+
+# Color classifier (lightweight TFLite inference)
+tflite-runtime>=2.14.0
+
+# Web framework
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+python-multipart>=0.0.9
+pydantic>=2.7
+pydantic-settings>=2.4
+slowapi>=0.1.9
+
+# Database
+sqlalchemy[asyncio]>=2.0
+asyncpg>=0.29
+alembic>=1.13
+aiosqlite>=0.20  # for local dev without Postgres
+
+# Utilidades
+pyyaml>=6.0
+tqdm>=4.64.0

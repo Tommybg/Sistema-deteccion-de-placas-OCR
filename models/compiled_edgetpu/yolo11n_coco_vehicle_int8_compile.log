@@ -1,0 +1,7 @@
+Edge TPU Compiler version 16.0.384591198
+ERROR: Didn't find op for builtin opcode 'CONV_2D' version '6'. An older version of this builtin might be supported. Are you using an old TFLite binary with a newer model?
+
+ERROR: Registration failed.
+
+Invalid model: /output/yolo11n_coco_vehicle_int8.tflite
+Model could not be parsed
