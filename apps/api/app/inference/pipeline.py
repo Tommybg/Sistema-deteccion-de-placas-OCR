@@ -41,7 +41,12 @@ def _read_plate_text(ocr, plate_image: np.ndarray) -> Optional[str]:
             if not result:
                 return None
             value = result[0] if isinstance(result, (list, tuple)) else result
-            text = str(value).strip()
+            # fast-plate-ocr >=1.x returns PlatePrediction objects with a
+            # `.plate` attribute; older versions return a bare string.
+            if hasattr(value, "plate"):
+                text = str(value.plate).strip()
+            else:
+                text = str(value).strip()
             return text or None
         finally:
             try:
