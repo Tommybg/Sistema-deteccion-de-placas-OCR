@@ -69,7 +69,11 @@ class Settings(BaseSettings):
         if self.SAMPLES_DIR == _DEFAULT_REPO_ROOT / "samples":
             self.SAMPLES_DIR = self.REPO_ROOT / "samples"
         if not self.DATABASE_URL:
-            self.DATABASE_URL = f"sqlite+aiosqlite:///{self.REPO_ROOT / 'apps' / 'api' / 'anpr.db'}"
+            # Default to a path under REPO_ROOT/data. In Docker REPO_ROOT
+            # is /app, so this becomes /app/data/anpr.db — survive
+            # restarts if /app/data is mounted as a Railway Volume.
+            db_path = self.REPO_ROOT / "data" / "anpr.db"
+            self.DATABASE_URL = f"sqlite+aiosqlite:///{db_path}"
         return self
 
     @field_validator("DATABASE_URL", mode="after")
