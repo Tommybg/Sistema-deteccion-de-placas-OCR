@@ -7,7 +7,13 @@ FROM node:20-alpine AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY apps/web/ .
+
+# NEXT_PUBLIC_* vars are inlined at build time, not runtime. Railway
+# forwards service env vars as build args when declared as ARG here.
+ARG NEXT_PUBLIC_API_URL
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 ENV NEXT_TELEMETRY_DISABLED=1
+
 RUN npm run build
 
 FROM node:20-alpine AS runner
