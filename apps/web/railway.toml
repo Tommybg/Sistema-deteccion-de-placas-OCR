@@ -1,0 +1,14 @@
+# Railway config for the Next.js 15 frontend service.
+# Build context MUST be the repo root (the Dockerfile references
+# apps/web/* paths relative to the repo root).
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "apps/web/Dockerfile"
+
+[deploy]
+startCommand = "node server.js"
+healthcheckPath = "/"
+healthcheckTimeout = 60
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3
