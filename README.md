@@ -393,5 +393,9 @@ El modelo usado es `cct-xs-v1-global-model`.
 
 ### Soporte Mac (M1/M2/M3/M4/M5)
 El sistema detecta automáticamente MPS (Metal Performance Shaders). Usa `--device auto` o `--device mps`.
-
-
+### Soporte de Actualización de los modelos
+Para la actualizacion de los modelos solo es la creación de un nuevo modelo .pt o .h5 que puede ser 
+│   ├── placa_detector_yolo11n.pt       # Detección de placas - PyTorch (5.2 MB)
+│   ├── marca_detector_yolo11n.pt       # Detección de marcas - PyTorch (~5 MB)
+│   ├── placa_detector_yolo11n.onnx     # Detección de placas - ONNX (10 MB)
+│   ├── color_classifier_efficientnet.h5  # Color - Keras (~15 MB)
